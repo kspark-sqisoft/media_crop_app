@@ -7,6 +7,8 @@ import 'dart:math';
 import 'package:image/image.dart' as img;
 import 'crop_region.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart';
+import 'package:media_kit_video/media_kit_video_controls/media_kit_video_controls.dart'
+    as media_kit_video_controls;
 
 class MediaCropPage extends StatefulWidget {
   const MediaCropPage({super.key});
@@ -34,11 +36,26 @@ class _MediaCropPageState extends State<MediaCropPage> {
   final List<CropRegion> _cropRegions = [];
   int _nextRegionId = 1;
 
+  // 창 크기 변화 중인지 추적하는 플래그
+  bool _isResizing = false;
+  // 이전 창 크기를 저장하여 변화 감지
+  double? _previousScreenWidth;
+  double? _previousScreenHeight;
+
   @override
   void initState() {
     super.initState();
     _player = Player();
     _controller = VideoController(_player);
+
+    // 초기 창 크기 설정
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final size = MediaQuery.of(context).size;
+        _previousScreenWidth = size.width - (_paddingValue * 2);
+        _previousScreenHeight = size.height - (_paddingValue * 2);
+      }
+    });
   }
 
   @override
@@ -100,18 +117,49 @@ class _MediaCropPageState extends State<MediaCropPage> {
         displayHeight = screenWidth / aspectRatio;
       }
 
-      // 크기가 실제로 변경되었는지 확인
+      // 크기가 실제로 변경되었는지 확인하고, 변경된 경우에만 업데이트
       if (_currentDisplayWidth != displayWidth ||
           _currentDisplayHeight != displayHeight) {
-        setState(() {
-          _currentDisplayWidth = displayWidth;
-          _currentDisplayHeight = displayHeight;
-        });
+        // 창 크기 변화가 있는 경우에만 리사이징 플래그 설정
+        if (_previousScreenWidth != null &&
+            _previousScreenHeight != null &&
+            (screenWidth != _previousScreenWidth ||
+                screenHeight != _previousScreenHeight)) {
+          setState(() {
+            _currentDisplayWidth = displayWidth;
+            _currentDisplayHeight = displayHeight;
+            _isResizing = true; // 창 크기 변화 중임을 표시
+            _previousScreenWidth = screenWidth;
+            _previousScreenHeight = screenHeight;
+          });
 
-        print('=== 크기 업데이트 ===');
-        print('새로운 표시 크기: $displayWidth × $displayHeight');
-        print('화면 크기: $screenWidth × $screenHeight');
-        print('미디어 크기: $_mediaWidth × $_mediaHeight');
+          print('=== 창 크기 변화 감지 ===');
+          print('이전 창 크기: $_previousScreenWidth × $_previousScreenHeight');
+          print('새로운 창 크기: $screenWidth × $screenHeight');
+          print('새로운 표시 크기: $displayWidth × $displayHeight');
+          print('크롭 영역 값은 변경되지 않음 - 화면 표시만 조정됨');
+
+          // 리사이징 완료 후 플래그 해제
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              setState(() {
+                _isResizing = false;
+              });
+              print('창 크기 변화 완료 - 크롭 영역 편집 가능');
+            }
+          });
+        } else {
+          // 단순히 표시 크기만 업데이트 (리사이징 플래그는 설정하지 않음)
+          setState(() {
+            _currentDisplayWidth = displayWidth;
+            _currentDisplayHeight = displayHeight;
+            _previousScreenWidth = screenWidth;
+            _previousScreenHeight = screenHeight;
+          });
+
+          print('=== 표시 크기 업데이트 ===');
+          print('새로운 표시 크기: $displayWidth × $displayHeight');
+        }
       }
     }
   }
@@ -380,23 +428,21 @@ class _MediaCropPageState extends State<MediaCropPage> {
         _mediaHeight != null &&
         _currentDisplayWidth != null &&
         _currentDisplayHeight != null) {
-      // 기본 크기를 150x150으로 설정
-      final cropWidth = 150.0;
-      final cropHeight = 150.0;
+      // 기본 크기를 200x200으로 설정 (원본 미디어 크기 대비 상대값)
+      final cropWidth = 200.0 / _mediaWidth!;
+      final cropHeight = 200.0 / _mediaHeight!;
 
       // 미디어 영역의 중앙에 크롭 영역 배치 (상대 좌표)
-      final cropLeft = (_currentDisplayWidth! - cropWidth) / 2;
-      final cropTop = (_currentDisplayHeight! - cropHeight) / 2;
+      final cropLeft = 0.5 - (cropWidth / 2);
+      final cropTop = 0.5 - (cropHeight / 2);
 
       final newRegion = CropRegion(
         name: '영역 $_nextRegionId',
-        x: cropLeft, // 미디어 영역 기준 상대 X 좌표
-        y: cropTop, // 미디어 영역 기준 상대 Y 좌표
+        x: cropLeft,
+        y: cropTop,
         width: cropWidth,
         height: cropHeight,
-        originalWidth: _currentDisplayWidth, // 크롭 영역 생성 시점의 표시 너비
-        originalHeight: _currentDisplayHeight, // 크롭 영역 생성 시점의 표시 높이
-        color: _generateRandomColor(), // 랜덤 색상 생성
+        color: _generateRandomColor(),
       );
 
       setState(() {
@@ -406,16 +452,47 @@ class _MediaCropPageState extends State<MediaCropPage> {
     }
   }
 
-  void _removeCropRegion(int index) {
-    setState(() {
-      _cropRegions.removeAt(index);
-    });
-  }
-
   void _updateCropRegion(int index, CropRegion newRegion) {
     setState(() {
       _cropRegions[index] = newRegion;
     });
+  }
+
+  void _updateCropRegionFromList(int index, String value, String field) {
+    final region = _cropRegions[index];
+
+    double? newValue;
+    if (field == 'x') {
+      newValue = double.tryParse(value);
+      if (newValue != null) {
+        // 입력된 픽셀 값을 상대 좌표로 변환
+        _updateCropRegion(index, region.copyWith(x: newValue / _mediaWidth!));
+      }
+    } else if (field == 'y') {
+      newValue = double.tryParse(value);
+      if (newValue != null) {
+        // 입력된 픽셀 값을 상대 좌표로 변환
+        _updateCropRegion(index, region.copyWith(y: newValue / _mediaHeight!));
+      }
+    } else if (field == 'width') {
+      newValue = double.tryParse(value);
+      if (newValue != null && newValue > 0) {
+        // 입력된 픽셀 값을 상대 좌표로 변환
+        _updateCropRegion(
+          index,
+          region.copyWith(width: newValue / _mediaWidth!),
+        );
+      }
+    } else if (field == 'height') {
+      newValue = double.tryParse(value);
+      if (newValue != null && newValue > 0) {
+        // 입력된 픽셀 값을 상대 좌표로 변환
+        _updateCropRegion(
+          index,
+          region.copyWith(height: newValue / _mediaHeight!),
+        );
+      }
+    }
   }
 
   @override
@@ -456,11 +533,17 @@ class _MediaCropPageState extends State<MediaCropPage> {
               },
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // constraints 변경을 감지하여 크기 재계산
+                  // constraints 변경을 감지하여 크기 재계산 (크롭 영역 값은 변경하지 않음)
                   if (_mediaWidth != null && _mediaHeight != null) {
-                    // 현재 constraints와 이전 constraints 비교
+                    // 이전 constraints와 비교하여 실제로 변경된 경우에만 호출
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _calculateCurrentDisplaySize(constraints);
+                      // 현재 constraints가 이전과 다른 경우에만 크기 재계산
+                      if (_currentDisplayWidth == null ||
+                          _currentDisplayHeight == null ||
+                          constraints.maxWidth != _currentDisplayWidth ||
+                          constraints.maxHeight != _currentDisplayHeight) {
+                        _calculateCurrentDisplaySize(constraints);
+                      }
                     });
                   }
 
@@ -481,7 +564,8 @@ class _MediaCropPageState extends State<MediaCropPage> {
               Positioned(
                 top: 20,
                 right: 20,
-                width: _isSettingsPanelOpen ? 300 : null,
+                width: _isSettingsPanelOpen ? 400 : null, // 너비를 400으로 설정
+                height: _isSettingsPanelOpen ? 800 : null, // 높이를 800으로 설정
                 child: _isSettingsPanelOpen
                     ? _buildSettingsPanel()
                     : _buildToggleButton(),
@@ -540,233 +624,412 @@ class _MediaCropPageState extends State<MediaCropPage> {
         border: Border.all(color: Colors.grey[300]!, width: 1),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
+          // 상단 내용 (파일 정보 + 크롭 영역 관리)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                _isVideo ? Icons.video_file : Icons.image,
-                color: Colors.blue[600],
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  fileName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+              // 파일 정보
+              Row(
+                children: [
+                  Icon(
+                    _isVideo ? Icons.video_file : Icons.image,
+                    color: Colors.blue[600],
+                    size: 20,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              IconButton(
-                onPressed: _resetMedia,
-                icon: const Icon(Icons.refresh, size: 18),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                tooltip: '초기화',
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.orange[100],
-                  foregroundColor: Colors.orange[700],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            filePath,
-            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 12),
-          if (_mediaWidth != null && _mediaHeight != null) ...[
-            Row(
-              children: [
-                Icon(Icons.aspect_ratio, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    '크기: $_mediaWidth × $_mediaHeight',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(Icons.info_outline, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    '타입: ${_isVideo ? '비디오' : '이미지'}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ] else ...[
-            Row(
-              children: [
-                Icon(Icons.hourglass_empty, size: 14, color: Colors.grey[600]),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    '파일 정보 로딩 중...',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 16),
-          // CropRegion 관리 섹션
-          Row(
-            children: [
-              Icon(Icons.crop_square, size: 16, color: Colors.green[600]),
-              const SizedBox(width: 4),
-              Text(
-                '크롭 영역',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[700],
-                ),
-              ),
-              const Spacer(),
-              ElevatedButton.icon(
-                onPressed: _addCropRegion,
-                icon: const Icon(Icons.add, size: 14),
-                label: const Text('추가', style: TextStyle(fontSize: 11)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[100],
-                  foregroundColor: Colors.green[700],
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  minimumSize: const Size(0, 24),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // CropRegion 리스트
-          if (_cropRegions.isNotEmpty) ...[
-            Container(
-              constraints: const BoxConstraints(maxHeight: 120),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _cropRegions.length,
-                itemBuilder: (context, index) {
-                  final region = _cropRegions[index];
-
-                  // 원본 미디어 기준으로 좌표와 크기 변환
-                  String coordinatesText =
-                      '${region.x.toInt()}, ${region.y.toInt()} (${region.width.toInt()}×${region.height.toInt()})';
-
-                  if (_mediaWidth != null &&
-                      _mediaHeight != null &&
-                      _currentDisplayWidth != null &&
-                      _currentDisplayHeight != null) {
-                    // 원본과 표시 크기의 비율 계산
-                    final scaleX = _mediaWidth! / _currentDisplayWidth!;
-                    final scaleY = _mediaHeight! / _currentDisplayHeight!;
-
-                    // 원본 기준 좌표와 크기 계산
-                    final originalX = (region.x * scaleX).toInt();
-                    final originalY = (region.y * scaleY).toInt();
-                    final originalWidth = (region.width * scaleX).toInt();
-                    final originalHeight = (region.height * scaleY).toInt();
-
-                    coordinatesText =
-                        '$originalX, $originalY ($originalWidth×$originalHeight)';
-                  }
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 4),
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: region.color.withValues(
-                        alpha: 0.2,
-                      ), // 같은 색상, 알파값 20%
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: region.color.withValues(alpha: 0.6),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      fileName,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                region.name,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                              Text(
-                                coordinatesText,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
+                  ),
+                  IconButton(
+                    onPressed: _resetMedia,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 24,
+                      minHeight: 24,
+                    ),
+                    tooltip: '초기화',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.orange[100],
+                      foregroundColor: Colors.orange[700],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // 파일 경로
+              if (filePath.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '경로:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        filePath,
+                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
+              // 파일 크기 정보
+              if (_mediaWidth != null && _mediaHeight != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '파일 크기:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.blue[600],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$_mediaWidth × $_mediaHeight',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.blue[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              // CropRegion 관리 섹션
+              Row(
+                children: [
+                  Icon(Icons.crop_square, size: 16, color: Colors.green[600]),
+                  const SizedBox(width: 4),
+                  Text(
+                    '크롭 영역',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const Spacer(),
+                  ElevatedButton.icon(
+                    onPressed: _addCropRegion,
+                    icon: const Icon(Icons.add, size: 14),
+                    label: const Text('추가', style: TextStyle(fontSize: 11)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[100],
+                      foregroundColor: Colors.green[700],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      minimumSize: const Size(0, 24),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+
+          // 중간 영역 (크롭 영역 리스트 또는 빈 공간)
+          Expanded(
+            child: _cropRegions.isNotEmpty
+                ? ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _cropRegions.length,
+                    itemBuilder: (context, index) {
+                      final region = _cropRegions[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: region.color.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: region.color.withValues(alpha: 0.6),
                           ),
                         ),
-                        IconButton(
-                          onPressed: () => _removeCropRegion(index),
-                          icon: const Icon(Icons.delete, size: 14),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 20,
-                            minHeight: 20,
-                          ),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.red[100],
-                            foregroundColor: Colors.red[600],
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 영역 이름과 삭제 버튼
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  region.name,
+                                  style: const TextStyle(
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.delete,
+                                    color: region.color,
+                                    size: 16,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _cropRegions.removeAt(index);
+                                    });
+                                  },
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 24,
+                                    minHeight: 24,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            // 입력 필드들
+                            Row(
+                              children: [
+                                // X 좌표 입력
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'X',
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      SizedBox(
+                                        height: 28,
+                                        child: TextField(
+                                          controller: TextEditingController(
+                                            text: (region.x * _mediaWidth!)
+                                                .toInt()
+                                                .toString(),
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                          ),
+                                          decoration: InputDecoration(
+                                            contentPadding:
+                                                const EdgeInsets.all(6),
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            isDense: true,
+                                          ),
+                                          onSubmitted: (value) {
+                                            _updateCropRegionFromList(
+                                              index,
+                                              value,
+                                              'x',
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Y 좌표 입력
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Y',
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      SizedBox(
+                                        height: 28,
+                                        child: TextField(
+                                          controller: TextEditingController(
+                                            text: (region.y * _mediaHeight!)
+                                                .toInt()
+                                                .toString(),
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                          ),
+                                          decoration: InputDecoration(
+                                            contentPadding:
+                                                const EdgeInsets.all(6),
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            isDense: true,
+                                          ),
+                                          onSubmitted: (value) {
+                                            _updateCropRegionFromList(
+                                              index,
+                                              value,
+                                              'y',
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Width 입력
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'W',
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      SizedBox(
+                                        height: 28,
+                                        child: TextField(
+                                          controller: TextEditingController(
+                                            text: (region.width * _mediaWidth!)
+                                                .toInt()
+                                                .toString(),
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                          ),
+                                          decoration: InputDecoration(
+                                            contentPadding:
+                                                const EdgeInsets.all(6),
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            isDense: true,
+                                          ),
+                                          onSubmitted: (value) {
+                                            _updateCropRegionFromList(
+                                              index,
+                                              value,
+                                              'width',
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Height 입력
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'H',
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      SizedBox(
+                                        height: 28,
+                                        child: TextField(
+                                          controller: TextEditingController(
+                                            text:
+                                                (region.height * _mediaHeight!)
+                                                    .toInt()
+                                                    .toString(),
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                          ),
+                                          decoration: InputDecoration(
+                                            contentPadding:
+                                                const EdgeInsets.all(6),
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            isDense: true,
+                                          ),
+                                          onSubmitted: (value) {
+                                            _updateCropRegionFromList(
+                                              index,
+                                              value,
+                                              'height',
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.grey[200]!),
-              ),
-              child: Text(
-                '크롭 영역이 없습니다. 추가 버튼을 눌러보세요.',
-                style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          // 닫기 버튼을 하단에 배치
+                      );
+                    },
+                  )
+                : Container(), // 크롭 영역이 없을 때는 빈 컨테이너
+          ),
+
+          // 하단 닫기 버튼 (항상 하단에 고정)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 5),
             child: Row(
@@ -852,6 +1115,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         controller: _controller,
         fit: BoxFit.contain,
         fill: Colors.transparent,
+        controls: media_kit_video_controls.NoVideoControls,
       );
     } else {
       mediaWidget = Image.file(File(_mediaPath!), fit: BoxFit.contain);
@@ -882,23 +1146,11 @@ class _MediaCropPageState extends State<MediaCropPage> {
                     return TransformableBox(
                       key: ValueKey('crop_region_$index'),
                       rect: Rect.fromLTWH(
-                        // 현재 표시 크기에 맞게 비례적으로 위치와 크기 조정
-                        region.x *
-                            (_currentDisplayWidth! /
-                                (region.originalWidth ??
-                                    _currentDisplayWidth!)),
-                        region.y *
-                            (_currentDisplayHeight! /
-                                (region.originalHeight ??
-                                    _currentDisplayHeight!)),
-                        region.width *
-                            (_currentDisplayWidth! /
-                                (region.originalWidth ??
-                                    _currentDisplayWidth!)),
-                        region.height *
-                            (_currentDisplayHeight! /
-                                (region.originalHeight ??
-                                    _currentDisplayHeight!)),
+                        // 상대 좌표를 실제 화면 좌표로 변환
+                        region.x * _currentDisplayWidth!,
+                        region.y * _currentDisplayHeight!,
+                        region.width * _currentDisplayWidth!,
+                        region.height * _currentDisplayHeight!,
                       ),
                       clampingRect: Rect.fromLTWH(
                         0,
@@ -907,20 +1159,31 @@ class _MediaCropPageState extends State<MediaCropPage> {
                         _currentDisplayHeight ?? 0,
                       ),
                       onChanged: (result, event) {
-                        // 변경된 좌표를 원본 크기 기준으로 저장
-                        final scaleX =
-                            (region.originalWidth ?? _currentDisplayWidth!) /
-                            _currentDisplayWidth!;
-                        final scaleY =
-                            (region.originalHeight ?? _currentDisplayHeight!) /
-                            _currentDisplayHeight!;
+                        // 창 크기 변화 중일 때만 차단
+                        if (_isResizing) {
+                          print('창 크기 변화 중 - onChanged 차단');
+                          return;
+                        }
 
+                        // 사용자의 정상적인 드래그/리사이즈는 허용
+                        // 창 크기 변화로 인한 자동 조정만 차단
+
+                        // 변경된 좌표를 상대 좌표로 변환하여 저장
                         final updatedRegion = region.copyWith(
-                          x: result.rect.left * scaleX,
-                          y: result.rect.top * scaleY,
-                          width: result.rect.width * scaleX,
-                          height: result.rect.height * scaleY,
+                          x: result.rect.left / _currentDisplayWidth!,
+                          y: result.rect.top / _currentDisplayHeight!,
+                          width: result.rect.width / _currentDisplayWidth!,
+                          height: result.rect.height / _currentDisplayHeight!,
                         );
+
+                        print('크롭 영역 값 업데이트: ${region.name}');
+                        print(
+                          '이전: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}',
+                        );
+                        print(
+                          '새로운: x=${updatedRegion.x}, y=${updatedRegion.y}, w=${updatedRegion.width}, h=${updatedRegion.height}',
+                        );
+
                         _updateCropRegion(index, updatedRegion);
                       },
                       cornerHandleBuilder: (context, handle) {
@@ -975,7 +1238,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                       child: Text(
                                         region.name,
                                         style: const TextStyle(
-                                          color: Colors.white,
+                                          color: Colors.red,
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -984,18 +1247,18 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                     const SizedBox(height: 8),
                                     // 좌표와 크기 정보
                                     Text(
-                                      'X: ${(region.x * (_mediaWidth! / (_currentDisplayWidth ?? 1))).toInt()}, Y: ${(region.y * (_mediaHeight! / (_currentDisplayHeight ?? 1))).toInt()}',
-                                      style: TextStyle(
-                                        color: region.color,
-                                        fontSize: 9,
+                                      'X: ${(region.x * _mediaWidth!).toInt()}, Y: ${(region.y * _mediaHeight!).toInt()}',
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 14,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                     Text(
-                                      'W: ${(region.width * (_mediaWidth! / (_currentDisplayWidth ?? 1))).toInt()}, H: ${(region.height * (_mediaHeight! / (_currentDisplayHeight ?? 1))).toInt()}',
-                                      style: TextStyle(
-                                        color: region.color,
-                                        fontSize: 9,
+                                      'W: ${(region.width * _mediaWidth!).toInt()}, H: ${(region.height * _mediaHeight!).toInt()}',
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 14,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
@@ -1010,17 +1273,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                           height: 34,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text:
-                                                  (region.x *
-                                                          (_mediaWidth! /
-                                                              (_currentDisplayWidth ??
-                                                                  1)))
-                                                      .toInt()
-                                                      .toString(),
+                                              text: (region.x * _mediaWidth!)
+                                                  .toInt()
+                                                  .toString(),
                                             ),
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              color: region.color,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.red,
                                             ),
                                             decoration: InputDecoration(
                                               labelText: 'X',
@@ -1039,13 +1298,11 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                                 value,
                                               );
                                               if (newX != null) {
-                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
-                                                final scaleX =
-                                                    (_currentDisplayWidth ??
-                                                        1) /
-                                                    _mediaWidth!;
+                                                // 입력된 픽셀 값을 상대 좌표로 변환
                                                 final updatedRegion = region
-                                                    .copyWith(x: newX * scaleX);
+                                                    .copyWith(
+                                                      x: newX / _mediaWidth!,
+                                                    );
                                                 _updateCropRegion(
                                                   index,
                                                   updatedRegion,
@@ -1061,17 +1318,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                           height: 34,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text:
-                                                  (region.y *
-                                                          (_mediaHeight! /
-                                                              (_currentDisplayHeight ??
-                                                                  1)))
-                                                      .toInt()
-                                                      .toString(),
+                                              text: (region.y * _mediaHeight!)
+                                                  .toInt()
+                                                  .toString(),
                                             ),
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              color: region.color,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.red,
                                             ),
                                             decoration: InputDecoration(
                                               labelText: 'Y',
@@ -1118,16 +1371,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                           child: TextField(
                                             controller: TextEditingController(
                                               text:
-                                                  (region.width *
-                                                          (_mediaWidth! /
-                                                              (_currentDisplayWidth ??
-                                                                  1)))
+                                                  (region.width * _mediaWidth!)
                                                       .toInt()
                                                       .toString(),
                                             ),
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              color: region.color,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.red,
                                             ),
                                             decoration: InputDecoration(
                                               labelText: 'W',
@@ -1147,14 +1397,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                               );
                                               if (newWidth != null &&
                                                   newWidth > 0) {
-                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
-                                                final scaleX =
-                                                    (_currentDisplayWidth ??
-                                                        1) /
-                                                    _mediaWidth!;
+                                                // 입력된 픽셀 값을 상대 좌표로 변환
                                                 final updatedRegion = region
                                                     .copyWith(
-                                                      width: newWidth * scaleX,
+                                                      width:
+                                                          newWidth /
+                                                          _mediaWidth!,
                                                     );
                                                 _updateCropRegion(
                                                   index,
@@ -1173,15 +1421,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                             controller: TextEditingController(
                                               text:
                                                   (region.height *
-                                                          (_mediaHeight! /
-                                                              (_currentDisplayHeight ??
-                                                                  1)))
+                                                          _mediaHeight!)
                                                       .toInt()
                                                       .toString(),
                                             ),
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              color: region.color,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.red,
                                             ),
                                             decoration: InputDecoration(
                                               labelText: 'H',
@@ -1201,15 +1447,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                               );
                                               if (newHeight != null &&
                                                   newHeight > 0) {
-                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
-                                                final scaleY =
-                                                    (_currentDisplayHeight ??
-                                                        1) /
-                                                    _mediaHeight!;
+                                                // 입력된 픽셀 값을 상대 좌표로 변환
                                                 final updatedRegion = region
                                                     .copyWith(
                                                       height:
-                                                          newHeight * scaleY,
+                                                          newHeight /
+                                                          _mediaHeight!,
                                                     );
                                                 _updateCropRegion(
                                                   index,

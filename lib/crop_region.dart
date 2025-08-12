@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 
 class CropRegion {
   final String name;
-  final double x;
-  final double y;
-  final double width;
-  final double height;
-  final double? originalWidth; // 크롭 영역이 생성된 시점의 표시 너비
-  final double? originalHeight; // 크롭 영역이 생성된 시점의 표시 높이
+  final double x; // 원본 미디어 크기 대비 상대 X 좌표 (0.0 ~ 1.0)
+  final double y; // 원본 미디어 크기 대비 상대 Y 좌표 (0.0 ~ 1.0)
+  final double width; // 원본 미디어 크기 대비 상대 너비 (0.0 ~ 1.0)
+  final double height; // 원본 미디어 크기 대비 상대 높이 (0.0 ~ 1.0)
   final Color color; // 크롭 영역의 고유 색상
 
   CropRegion({
@@ -16,8 +14,6 @@ class CropRegion {
     required this.y,
     required this.width,
     required this.height,
-    this.originalWidth,
-    this.originalHeight,
     required this.color,
   });
 
@@ -27,8 +23,6 @@ class CropRegion {
     double? y,
     double? width,
     double? height,
-    double? originalWidth,
-    double? originalHeight,
     Color? color,
   }) {
     return CropRegion(
@@ -37,14 +31,12 @@ class CropRegion {
       y: y ?? this.y,
       width: width ?? this.width,
       height: height ?? this.height,
-      originalWidth: originalWidth ?? this.originalWidth,
-      originalHeight: originalHeight ?? this.originalHeight,
       color: color ?? this.color,
     );
   }
 
   @override
   String toString() {
-    return 'CropRegion(name: $name, x: $x, y: $y, width: $width, height: $height, originalWidth: $originalWidth, originalHeight: $originalHeight, color: $color)';
+    return 'CropRegion(name: $name, x: $x, y: $y, width: $width, height: $height, color: $color)';
   }
 }
