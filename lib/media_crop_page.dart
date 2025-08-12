@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'dart:io';
-import 'dart:math';
 import 'package:image/image.dart' as img;
-import 'crop_region.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart';
-import 'package:media_kit_video/media_kit_video_controls/media_kit_video_controls.dart'
-    as media_kit_video_controls;
+import 'dart:io';
+import 'crop_region.dart';
+import 'utils.dart';
 
 class MediaCropPage extends StatefulWidget {
   const MediaCropPage({super.key});
@@ -38,9 +36,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
 
   // 창 크기 변화 중인지 추적하는 플래그
   bool _isResizing = false;
-  // 이전 창 크기를 저장하여 변화 감지
-  double? _previousScreenWidth;
-  double? _previousScreenHeight;
 
   @override
   void initState() {
@@ -52,8 +47,8 @@ class _MediaCropPageState extends State<MediaCropPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final size = MediaQuery.of(context).size;
-        _previousScreenWidth = size.width - (_paddingValue * 2);
-        _previousScreenHeight = size.height - (_paddingValue * 2);
+        _currentDisplayWidth = size.width - (_paddingValue * 2);
+        _currentDisplayHeight = size.height - (_paddingValue * 2);
       }
     });
   }
@@ -120,46 +115,20 @@ class _MediaCropPageState extends State<MediaCropPage> {
       // 크기가 실제로 변경되었는지 확인하고, 변경된 경우에만 업데이트
       if (_currentDisplayWidth != displayWidth ||
           _currentDisplayHeight != displayHeight) {
-        // 창 크기 변화가 있는 경우에만 리사이징 플래그 설정
-        if (_previousScreenWidth != null &&
-            _previousScreenHeight != null &&
-            (screenWidth != _previousScreenWidth ||
-                screenHeight != _previousScreenHeight)) {
-          setState(() {
-            _currentDisplayWidth = displayWidth;
-            _currentDisplayHeight = displayHeight;
-            _isResizing = true; // 창 크기 변화 중임을 표시
-            _previousScreenWidth = screenWidth;
-            _previousScreenHeight = screenHeight;
-          });
+        setState(() {
+          _currentDisplayWidth = displayWidth;
+          _currentDisplayHeight = displayHeight;
+          _isResizing = true; // 창 크기 변화 중임을 표시
+        });
 
-          print('=== 창 크기 변화 감지 ===');
-          print('이전 창 크기: $_previousScreenWidth × $_previousScreenHeight');
-          print('새로운 창 크기: $screenWidth × $screenHeight');
-          print('새로운 표시 크기: $displayWidth × $displayHeight');
-          print('크롭 영역 값은 변경되지 않음 - 화면 표시만 조정됨');
-
-          // 리사이징 완료 후 플래그 해제
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (mounted) {
-              setState(() {
-                _isResizing = false;
-              });
-              print('창 크기 변화 완료 - 크롭 영역 편집 가능');
-            }
-          });
-        } else {
-          // 단순히 표시 크기만 업데이트 (리사이징 플래그는 설정하지 않음)
-          setState(() {
-            _currentDisplayWidth = displayWidth;
-            _currentDisplayHeight = displayHeight;
-            _previousScreenWidth = screenWidth;
-            _previousScreenHeight = screenHeight;
-          });
-
-          print('=== 표시 크기 업데이트 ===');
-          print('새로운 표시 크기: $displayWidth × $displayHeight');
-        }
+        // 리사이징 완료 후 플래그 해제
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) {
+            setState(() {
+              _isResizing = false;
+            });
+          }
+        });
       }
     }
   }
@@ -176,19 +145,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
 
         // 비디오 스트림 정보에서 크기 가져오기
         final tracks = _player.state.tracks;
-        print('전체 트랙 정보: $tracks');
 
         if (tracks.video.isNotEmpty) {
           final videoTrack = tracks.video.first;
-          print('비디오 트랙 정보: $videoTrack');
-          print('비디오 트랙 타입: ${videoTrack.runtimeType}');
-
-          // VideoTrack의 속성들을 직접 확인
-          print('비디오 트랙 속성들: ${videoTrack.toString()}');
 
           // 플레이어 상태에서 크기 정보 확인
           final playerState = _player.state;
-          print('플레이어 상태: $playerState');
 
           // 비디오 크기 정보를 찾기 위해 다양한 방법 시도
           bool sizeFound = false;
@@ -197,7 +159,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
           try {
             // VideoTrack의 모든 public 속성 확인
             final trackString = videoTrack.toString();
-            print('트랙 문자열: $trackString');
 
             // 문자열에서 크기 정보 패턴 찾기 (w: 1920, h: 1080 형태)
             final sizePattern = RegExp(
@@ -213,19 +174,17 @@ class _MediaCropPageState extends State<MediaCropPage> {
                   _mediaWidth = width;
                   _mediaHeight = height;
                 });
-                print('비디오 크기 (트랙 패턴): $_mediaWidth × $_mediaHeight');
                 sizeFound = true;
               }
             }
           } catch (e) {
-            print('트랙에서 크기 정보 추출 실패: $e');
+            // 크기 정보 추출 실패 시 무시
           }
 
           // 2. 여전히 크기 정보가 없으면 플레이어 상태에서 찾기
           if (!sizeFound) {
             try {
               final stateString = playerState.toString();
-              print('플레이어 상태 문자열: $stateString');
 
               // VideoParams에서 크기 정보 찾기 (w: 1920, h: 1080 형태)
               final videoParamsPattern = RegExp(
@@ -241,7 +200,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
                     _mediaWidth = width;
                     _mediaHeight = height;
                   });
-                  print('비디오 크기 (VideoParams): $_mediaWidth × $_mediaHeight');
                   sizeFound = true;
                 }
               }
@@ -261,15 +219,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
                       _mediaWidth = width;
                       _mediaHeight = height;
                     });
-                    print(
-                      '비디오 크기 (width/height): $_mediaWidth × $_mediaHeight',
-                    );
                     sizeFound = true;
                   }
                 }
               }
             } catch (e) {
-              print('플레이어 상태에서 크기 정보 추출 실패: $e');
+              // 크기 정보 추출 실패 시 무시
             }
           }
 
@@ -282,20 +237,18 @@ class _MediaCropPageState extends State<MediaCropPage> {
                   _mediaWidth = playerState.width;
                   _mediaHeight = playerState.height;
                 });
-                print('비디오 크기 (직접 접근): $_mediaWidth × $_mediaHeight');
                 sizeFound = true;
               }
             } catch (e) {
-              print('직접 접근 실패: $e');
+              // 직접 접근 실패 시 무시
             }
           }
 
-          // 4. 여전히 크기 정보가 없으면 오류
+          // 4. 여전히 크기 정보가 없으면 기본값 설정
           if (!sizeFound) {
-            print('비디오 크기 정보를 가져올 수 없음');
             setState(() {
-              _mediaWidth = 0;
-              _mediaHeight = 0;
+              _mediaWidth = 1920; // 기본값
+              _mediaHeight = 1080; // 기본값
             });
           }
         }
@@ -306,10 +259,9 @@ class _MediaCropPageState extends State<MediaCropPage> {
           _calculateCurrentDisplaySize();
         }
       } catch (e) {
-        print('비디오 크기 파싱 오류: $e');
         setState(() {
-          _mediaWidth = 0;
-          _mediaHeight = 0;
+          _mediaWidth = 1920; // 기본값
+          _mediaHeight = 1080; // 기본값
         });
       }
     } else {
@@ -325,7 +277,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
               _mediaWidth = image.width;
               _mediaHeight = image.height;
             });
-            print('이미지 크기: ${image.width} × ${image.height}');
 
             // 이미지 크기 설정 후 현재 표시 크기 계산
             await Future.delayed(const Duration(milliseconds: 100));
@@ -342,7 +293,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
           }
         }
       } catch (e) {
-        print('이미지 크기 파싱 오류: $e');
         // 오류 발생 시 수동 파싱 시도
         try {
           final file = File(path);
@@ -357,10 +307,9 @@ class _MediaCropPageState extends State<MediaCropPage> {
             }
           }
         } catch (e2) {
-          print('수동 파싱도 실패: $e2');
           setState(() {
-            _mediaWidth = 0;
-            _mediaHeight = 0;
+            _mediaWidth = 1920; // 기본값
+            _mediaHeight = 1080; // 기본값
           });
         }
       }
@@ -382,7 +331,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
                 _mediaHeight = (bytes[i + 5] << 8) | bytes[i + 6];
                 _mediaWidth = (bytes[i + 7] << 8) | bytes[i + 8];
               });
-              print('JPEG 수동 파싱: $_mediaWidth × $_mediaHeight');
             }
             break;
           }
@@ -406,7 +354,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
                 (bytes[22] << 8) |
                 bytes[23];
           });
-          print('PNG 수동 파싱: $_mediaWidth × $_mediaHeight');
         }
       } else if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
         // GIF 파일 크기 파싱
@@ -415,11 +362,10 @@ class _MediaCropPageState extends State<MediaCropPage> {
             _mediaWidth = bytes[6] | (bytes[7] << 8);
             _mediaHeight = bytes[8] | (bytes[9] << 8);
           });
-          print('GIF 수동 파싱: $_mediaWidth × $_mediaHeight');
         }
       }
     } catch (e) {
-      print('수동 파싱 중 오류: $e');
+      // 수동 파싱 중 오류: 무시
     }
   }
 
@@ -442,7 +388,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         y: cropTop,
         width: cropWidth,
         height: cropHeight,
-        color: _generateRandomColor(),
+        color: Utils.generateRandomColor(),
       );
 
       setState(() {
@@ -510,7 +456,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
                   final path = file.path;
                   setState(() {
                     _mediaPath = path;
-                    _isVideo = _isVideoFile(path);
+                    _isVideo = Utils.isVideoFile(path);
                   });
 
                   if (_isVideo) {
@@ -1115,7 +1061,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
         controller: _controller,
         fit: BoxFit.contain,
         fill: Colors.transparent,
-        controls: media_kit_video_controls.NoVideoControls,
       );
     } else {
       mediaWidget = Image.file(File(_mediaPath!), fit: BoxFit.contain);
@@ -1161,7 +1106,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
                       onChanged: (result, event) {
                         // 창 크기 변화 중일 때만 차단
                         if (_isResizing) {
-                          print('창 크기 변화 중 - onChanged 차단');
                           return;
                         }
 
@@ -1174,14 +1118,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
                           y: result.rect.top / _currentDisplayHeight!,
                           width: result.rect.width / _currentDisplayWidth!,
                           height: result.rect.height / _currentDisplayHeight!,
-                        );
-
-                        print('크롭 영역 값 업데이트: ${region.name}');
-                        print(
-                          '이전: x=${region.x}, y=${region.y}, w=${region.width}, h=${region.height}',
-                        );
-                        print(
-                          '새로운: x=${updatedRegion.x}, y=${updatedRegion.y}, w=${updatedRegion.width}, h=${updatedRegion.height}',
                         );
 
                         _updateCropRegion(index, updatedRegion);
@@ -1536,29 +1472,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
           ),
         ],
       ),
-    );
-  }
-
-  bool _isVideoFile(String path) {
-    final extension = path.split('.').last.toLowerCase();
-    return [
-      'mp4',
-      'avi',
-      'mov',
-      'mkv',
-      'wmv',
-      'flv',
-      'webm',
-    ].contains(extension);
-  }
-
-  Color _generateRandomColor() {
-    final random = Random();
-    return Color.fromARGB(
-      255,
-      random.nextInt(256), // Red
-      random.nextInt(256), // Green
-      random.nextInt(256), // Blue
     );
   }
 }
