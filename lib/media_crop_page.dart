@@ -3,6 +3,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'dart:io';
+import 'dart:math';
 import 'package:image/image.dart' as img;
 import 'crop_region.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart';
@@ -379,24 +380,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
         _mediaHeight != null &&
         _currentDisplayWidth != null &&
         _currentDisplayHeight != null) {
-      // 미디어 영역 기준으로 상대 좌표로 크롭 영역 생성 (0,0부터 시작)
-      final cropWidth = (_currentDisplayWidth! * 0.2).clamp(
-        100.0,
-        300.0,
-      ); // 미디어 너비의 20%, 최소 100, 최대 300
-      final cropHeight = (_currentDisplayHeight! * 0.15).clamp(
-        75.0,
-        225.0,
-      ); // 미디어 높이의 15%, 최소 75, 최대 225
+      // 기본 크기를 150x150으로 설정
+      final cropWidth = 150.0;
+      final cropHeight = 150.0;
 
       // 미디어 영역의 중앙에 크롭 영역 배치 (상대 좌표)
       final cropLeft = (_currentDisplayWidth! - cropWidth) / 2;
       final cropTop = (_currentDisplayHeight! - cropHeight) / 2;
-
-      print('=== 크롭 영역 추가 디버그 ===');
-      print('미디어 표시 크기: $_currentDisplayWidth × $_currentDisplayHeight');
-      print('크롭 영역 상대 위치: ($cropLeft, $cropTop)');
-      print('크롭 영역 크기: $cropWidth × $cropHeight');
 
       final newRegion = CropRegion(
         name: '영역 $_nextRegionId',
@@ -406,6 +396,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         height: cropHeight,
         originalWidth: _currentDisplayWidth, // 크롭 영역 생성 시점의 표시 너비
         originalHeight: _currentDisplayHeight, // 크롭 영역 생성 시점의 표시 높이
+        color: _generateRandomColor(), // 랜덤 색상 생성
       );
 
       setState(() {
@@ -708,9 +699,13 @@ class _MediaCropPageState extends State<MediaCropPage> {
                     margin: const EdgeInsets.only(bottom: 4),
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.grey[50],
+                      color: region.color.withValues(
+                        alpha: 0.2,
+                      ), // 같은 색상, 알파값 20%
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.grey[300]!),
+                      border: Border.all(
+                        color: region.color.withValues(alpha: 0.6),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -928,25 +923,305 @@ class _MediaCropPageState extends State<MediaCropPage> {
                         );
                         _updateCropRegion(index, updatedRegion);
                       },
+                      cornerHandleBuilder: (context, handle) {
+                        return DefaultCornerHandle(
+                          handle: handle,
+                          size: 8,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.blue, width: 1),
+                            color: Colors.white,
+                            shape: BoxShape.rectangle,
+                          ),
+                        );
+                      },
+                      sideHandleBuilder: (context, handle) {
+                        return DefaultSideHandle(
+                          handle: handle,
+                          length: 8,
+                          thickness: 8,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.blue, width: 1),
+                            color: Colors.white,
+                            shape: BoxShape.rectangle,
+                          ),
+                        );
+                      },
                       contentBuilder: (context, rect, flip) {
                         return DecoratedBox(
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.red, width: 2),
-                            color: Colors.red.withValues(alpha: 0.1),
+                            border: Border.all(color: region.color, width: 2),
+                            color: region.color.withValues(
+                              alpha: 0.2,
+                            ), // 알파값 20%
                           ),
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withValues(alpha: 0.8),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                region.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.vertical,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // 영역 이름
+                                    Container(
+                                      padding: const EdgeInsets.all(4),
+                                      decoration: BoxDecoration(
+                                        color: region.color.withValues(
+                                          alpha: 0.8,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        region.name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    // 좌표와 크기 정보
+                                    Text(
+                                      'X: ${(region.x * (_mediaWidth! / (_currentDisplayWidth ?? 1))).toInt()}, Y: ${(region.y * (_mediaHeight! / (_currentDisplayHeight ?? 1))).toInt()}',
+                                      style: TextStyle(
+                                        color: region.color,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      'W: ${(region.width * (_mediaWidth! / (_currentDisplayWidth ?? 1))).toInt()}, H: ${(region.height * (_mediaHeight! / (_currentDisplayHeight ?? 1))).toInt()}',
+                                      style: TextStyle(
+                                        color: region.color,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    // 입력 필드들
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // X 좌표 입력
+                                        SizedBox(
+                                          width: 49,
+                                          height: 34,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.x *
+                                                          (_mediaWidth! /
+                                                              (_currentDisplayWidth ??
+                                                                  1)))
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              color: region.color,
+                                            ),
+                                            decoration: InputDecoration(
+                                              labelText: 'X',
+                                              labelStyle: TextStyle(
+                                                fontSize: 7,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.all(4),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                            onSubmitted: (value) {
+                                              final newX = double.tryParse(
+                                                value,
+                                              );
+                                              if (newX != null) {
+                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
+                                                final scaleX =
+                                                    (_currentDisplayWidth ??
+                                                        1) /
+                                                    _mediaWidth!;
+                                                final updatedRegion = region
+                                                    .copyWith(x: newX * scaleX);
+                                                _updateCropRegion(
+                                                  index,
+                                                  updatedRegion,
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        // Y 좌표 입력
+                                        SizedBox(
+                                          width: 49,
+                                          height: 34,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.y *
+                                                          (_mediaHeight! /
+                                                              (_currentDisplayHeight ??
+                                                                  1)))
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              color: region.color,
+                                            ),
+                                            decoration: InputDecoration(
+                                              labelText: 'Y',
+                                              labelStyle: TextStyle(
+                                                fontSize: 7,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.all(4),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                            onSubmitted: (value) {
+                                              final newY = double.tryParse(
+                                                value,
+                                              );
+                                              if (newY != null) {
+                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
+                                                final scaleY =
+                                                    (_currentDisplayHeight ??
+                                                        1) /
+                                                    _mediaHeight!;
+                                                final updatedRegion = region
+                                                    .copyWith(y: newY * scaleY);
+                                                _updateCropRegion(
+                                                  index,
+                                                  updatedRegion,
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Width 입력
+                                        SizedBox(
+                                          width: 49,
+                                          height: 34,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.width *
+                                                          (_mediaWidth! /
+                                                              (_currentDisplayWidth ??
+                                                                  1)))
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              color: region.color,
+                                            ),
+                                            decoration: InputDecoration(
+                                              labelText: 'W',
+                                              labelStyle: TextStyle(
+                                                fontSize: 7,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.all(4),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                            onSubmitted: (value) {
+                                              final newWidth = double.tryParse(
+                                                value,
+                                              );
+                                              if (newWidth != null &&
+                                                  newWidth > 0) {
+                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
+                                                final scaleX =
+                                                    (_currentDisplayWidth ??
+                                                        1) /
+                                                    _mediaWidth!;
+                                                final updatedRegion = region
+                                                    .copyWith(
+                                                      width: newWidth * scaleX,
+                                                    );
+                                                _updateCropRegion(
+                                                  index,
+                                                  updatedRegion,
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        // Height 입력
+                                        SizedBox(
+                                          width: 49,
+                                          height: 34,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.height *
+                                                          (_mediaHeight! /
+                                                              (_currentDisplayHeight ??
+                                                                  1)))
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              color: region.color,
+                                            ),
+                                            decoration: InputDecoration(
+                                              labelText: 'H',
+                                              labelStyle: TextStyle(
+                                                fontSize: 7,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.all(4),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                            onSubmitted: (value) {
+                                              final newHeight = double.tryParse(
+                                                value,
+                                              );
+                                              if (newHeight != null &&
+                                                  newHeight > 0) {
+                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
+                                                final scaleY =
+                                                    (_currentDisplayHeight ??
+                                                        1) /
+                                                    _mediaHeight!;
+                                                final updatedRegion = region
+                                                    .copyWith(
+                                                      height:
+                                                          newHeight * scaleY,
+                                                    );
+                                                _updateCropRegion(
+                                                  index,
+                                                  updatedRegion,
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -1032,5 +1307,15 @@ class _MediaCropPageState extends State<MediaCropPage> {
       'flv',
       'webm',
     ].contains(extension);
+  }
+
+  Color _generateRandomColor() {
+    final random = Random();
+    return Color.fromARGB(
+      255,
+      random.nextInt(256), // Red
+      random.nextInt(256), // Green
+      random.nextInt(256), // Blue
+    );
   }
 }
