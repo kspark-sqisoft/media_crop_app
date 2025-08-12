@@ -15,6 +15,9 @@ class MediaCropPage extends StatefulWidget {
 }
 
 class _MediaCropPageState extends State<MediaCropPage> {
+  // 패딩 값 설정 (언제든 변경 가능)
+  static const double _paddingValue = 16.0;
+
   bool _isDragging = false;
   String? _mediaPath;
   bool _isVideo = false;
@@ -25,7 +28,6 @@ class _MediaCropPageState extends State<MediaCropPage> {
   int? _mediaHeight;
   double? _currentDisplayWidth;
   double? _currentDisplayHeight;
-  bool _isCalculatingSize = false; // 중복 계산 방지 플래그
 
   // CropRegion 관리
   final List<CropRegion> _cropRegions = [];
@@ -50,6 +52,11 @@ class _MediaCropPageState extends State<MediaCropPage> {
       _isVideo = false;
       _mediaWidth = null;
       _mediaHeight = null;
+      _currentDisplayWidth = null;
+      _currentDisplayHeight = null;
+      // 크롭 영역도 함께 초기화
+      _cropRegions.clear();
+      _nextRegionId = 1;
     });
     _player.stop();
   }
@@ -61,20 +68,19 @@ class _MediaCropPageState extends State<MediaCropPage> {
   }
 
   void _calculateCurrentDisplaySize([BoxConstraints? constraints]) {
-    // 이미 계산 중이면 중복 실행 방지
-    if (_isCalculatingSize) return;
-
-    _isCalculatingSize = true;
-
     // LayoutBuilder의 constraints를 사용하거나 MediaQuery를 사용
     double screenWidth, screenHeight;
 
     if (constraints != null) {
+      // LayoutBuilder의 constraints는 이미 패딩이 적용된 공간
       screenWidth = constraints.maxWidth;
       screenHeight = constraints.maxHeight;
     } else {
-      screenWidth = MediaQuery.of(context).size.width;
-      screenHeight = MediaQuery.of(context).size.height;
+      // MediaQuery를 사용할 때는 패딩을 제외
+      screenWidth =
+          MediaQuery.of(context).size.width - (_paddingValue * 2); // 좌우 패딩 제외
+      screenHeight =
+          MediaQuery.of(context).size.height - (_paddingValue * 2); // 상하 패딩 제외
     }
 
     if (_mediaWidth != null && _mediaHeight != null) {
@@ -84,23 +90,29 @@ class _MediaCropPageState extends State<MediaCropPage> {
       double displayWidth, displayHeight;
 
       if (screenWidth / screenHeight > aspectRatio) {
-        // 화면이 더 넓음 - 높이에 맞춤
+        // 사용 가능한 공간이 더 넓음 - 높이에 맞춤
         displayHeight = screenHeight;
         displayWidth = screenHeight * aspectRatio;
       } else {
-        // 화면이 더 좁음 - 너비에 맞춤
+        // 사용 가능한 공간이 더 좁음 - 너비에 맞춤
         displayWidth = screenWidth;
         displayHeight = screenWidth / aspectRatio;
       }
 
-      setState(() {
-        _currentDisplayWidth = displayWidth;
-        _currentDisplayHeight = displayHeight;
-      });
-    }
+      // 크기가 실제로 변경되었는지 확인
+      if (_currentDisplayWidth != displayWidth ||
+          _currentDisplayHeight != displayHeight) {
+        setState(() {
+          _currentDisplayWidth = displayWidth;
+          _currentDisplayHeight = displayHeight;
+        });
 
-    // 계산 완료 후 플래그 해제
-    _isCalculatingSize = false;
+        print('=== 크기 업데이트 ===');
+        print('새로운 표시 크기: $displayWidth × $displayHeight');
+        print('화면 크기: $screenWidth × $screenHeight');
+        print('미디어 크기: $_mediaWidth × $_mediaHeight');
+      }
+    }
   }
 
   void _getMediaDimensions(String path) async {
@@ -368,8 +380,14 @@ class _MediaCropPageState extends State<MediaCropPage> {
         _currentDisplayWidth != null &&
         _currentDisplayHeight != null) {
       // 미디어 영역 기준으로 상대 좌표로 크롭 영역 생성 (0,0부터 시작)
-      final cropWidth = 200.0;
-      final cropHeight = 150.0;
+      final cropWidth = (_currentDisplayWidth! * 0.2).clamp(
+        100.0,
+        300.0,
+      ); // 미디어 너비의 20%, 최소 100, 최대 300
+      final cropHeight = (_currentDisplayHeight! * 0.15).clamp(
+        75.0,
+        225.0,
+      ); // 미디어 높이의 15%, 최소 75, 최대 225
 
       // 미디어 영역의 중앙에 크롭 영역 배치 (상대 좌표)
       final cropLeft = (_currentDisplayWidth! - cropWidth) / 2;
@@ -386,6 +404,8 @@ class _MediaCropPageState extends State<MediaCropPage> {
         y: cropTop, // 미디어 영역 기준 상대 Y 좌표
         width: cropWidth,
         height: cropHeight,
+        originalWidth: _currentDisplayWidth, // 크롭 영역 생성 시점의 표시 너비
+        originalHeight: _currentDisplayHeight, // 크롭 영역 생성 시점의 표시 높이
       );
 
       setState(() {
@@ -407,80 +427,76 @@ class _MediaCropPageState extends State<MediaCropPage> {
     });
   }
 
-  void _updateCropRegionRect(int index, Rect newRect) {
-    final updatedRegion = _cropRegions[index].copyWith(
-      x: newRect.left,
-      y: newRect.top,
-      width: newRect.width,
-      height: newRect.height,
-    );
-    _updateCropRegion(index, updatedRegion);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          // 미디어 영역 (전체 화면)
-          DropTarget(
-            onDragDone: (detail) {
-              if (detail.files.isNotEmpty) {
-                final file = detail.files.first;
-                final path = file.path;
-                setState(() {
-                  _mediaPath = path;
-                  _isVideo = _isVideoFile(path);
-                });
-
-                if (_isVideo) {
-                  _player.open(Media(path));
-                }
-
-                // 미디어 크기 정보 가져오기
-                _getMediaDimensions(path);
-              }
-            },
-            onDragEntered: (detail) {
-              setState(() {
-                _isDragging = true;
-              });
-            },
-            onDragExited: (detail) {
-              setState(() {
-                _isDragging = false;
-              });
-            },
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // 레이아웃 변경 시 현재 표시 크기 재계산 (한 번만)
-                if (_mediaWidth != null &&
-                    _mediaHeight != null &&
-                    !_isCalculatingSize) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _calculateCurrentDisplaySize(constraints);
+      body: Padding(
+        padding: EdgeInsets.all(_paddingValue),
+        child: Stack(
+          children: [
+            // 미디어 영역 (전체 화면)
+            DropTarget(
+              onDragDone: (detail) {
+                if (detail.files.isNotEmpty) {
+                  final file = detail.files.first;
+                  final path = file.path;
+                  setState(() {
+                    _mediaPath = path;
+                    _isVideo = _isVideoFile(path);
                   });
-                }
 
-                return SizedBox(
-                  width: double.infinity,
-                  height: double.infinity,
-                  child: _buildMediaContent(),
-                );
+                  if (_isVideo) {
+                    _player.open(Media(path));
+                  }
+
+                  // 미디어 크기 정보 가져오기
+                  _getMediaDimensions(path);
+                }
               },
+              onDragEntered: (detail) {
+                setState(() {
+                  _isDragging = true;
+                });
+              },
+              onDragExited: (detail) {
+                setState(() {
+                  _isDragging = false;
+                });
+              },
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // constraints 변경을 감지하여 크기 재계산
+                  if (_mediaWidth != null && _mediaHeight != null) {
+                    // 현재 constraints와 이전 constraints 비교
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _calculateCurrentDisplaySize(constraints);
+                    });
+                  }
+
+                  return SizedBox(
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: LayoutBuilder(
+                      builder: (context, innerConstraints) {
+                        return _buildMediaContent(innerConstraints);
+                      },
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-          // 설정 패널 (오른쪽 상단에 겹쳐서 표시)
-          if (_mediaPath != null)
-            Positioned(
-              top: 20,
-              right: 20,
-              width: _isSettingsPanelOpen ? 300 : null,
-              child: _isSettingsPanelOpen
-                  ? _buildSettingsPanel()
-                  : _buildToggleButton(),
-            ),
-        ],
+            // 설정 패널 (오른쪽 상단에 겹쳐서 표시)
+            if (_mediaPath != null)
+              Positioned(
+                top: 20,
+                right: 20,
+                width: _isSettingsPanelOpen ? 300 : null,
+                child: _isSettingsPanelOpen
+                    ? _buildSettingsPanel()
+                    : _buildToggleButton(),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -792,7 +808,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
     );
   }
 
-  Widget _buildMediaContent() {
+  Widget _buildMediaContent(BoxConstraints constraints) {
     if (_mediaPath == null) {
       return Container(
         width: double.infinity,
@@ -837,7 +853,11 @@ class _MediaCropPageState extends State<MediaCropPage> {
 
     Widget mediaWidget;
     if (_isVideo) {
-      mediaWidget = Video(controller: _controller, fit: BoxFit.contain);
+      mediaWidget = Video(
+        controller: _controller,
+        fit: BoxFit.contain,
+        fill: Colors.transparent,
+      );
     } else {
       mediaWidget = Image.file(File(_mediaPath!), fit: BoxFit.contain);
     }
@@ -852,11 +872,8 @@ class _MediaCropPageState extends State<MediaCropPage> {
         // 미디어 영역을 나타내는 Container (크롭 영역을 위한 경계)
         if (_currentDisplayWidth != null && _currentDisplayHeight != null)
           Positioned(
-            left:
-                (MediaQuery.sizeOf(context).width - _currentDisplayWidth!) / 2,
-            top:
-                (MediaQuery.sizeOf(context).height - _currentDisplayHeight!) /
-                2,
+            left: (constraints.maxWidth - _currentDisplayWidth!) / 2,
+            top: (constraints.maxHeight - _currentDisplayHeight!) / 2,
             child: SizedBox(
               width: _currentDisplayWidth!,
               height: _currentDisplayHeight!,
@@ -870,24 +887,44 @@ class _MediaCropPageState extends State<MediaCropPage> {
                     return TransformableBox(
                       key: ValueKey('crop_region_$index'),
                       rect: Rect.fromLTWH(
-                        region.x, // 이미 미디어 영역 기준 상대 좌표
-                        region.y, // 이미 미디어 영역 기준 상대 좌표
-                        region.width,
-                        region.height,
+                        // 현재 표시 크기에 맞게 비례적으로 위치와 크기 조정
+                        region.x *
+                            (_currentDisplayWidth! /
+                                (region.originalWidth ??
+                                    _currentDisplayWidth!)),
+                        region.y *
+                            (_currentDisplayHeight! /
+                                (region.originalHeight ??
+                                    _currentDisplayHeight!)),
+                        region.width *
+                            (_currentDisplayWidth! /
+                                (region.originalWidth ??
+                                    _currentDisplayWidth!)),
+                        region.height *
+                            (_currentDisplayHeight! /
+                                (region.originalHeight ??
+                                    _currentDisplayHeight!)),
                       ),
                       clampingRect: Rect.fromLTWH(
                         0,
                         0,
-                        _currentDisplayWidth!,
-                        _currentDisplayHeight!,
+                        _currentDisplayWidth ?? 0,
+                        _currentDisplayHeight ?? 0,
                       ),
                       onChanged: (result, event) {
-                        // 변경된 좌표를 직접 저장 (이미 상대 좌표)
+                        // 변경된 좌표를 원본 크기 기준으로 저장
+                        final scaleX =
+                            (region.originalWidth ?? _currentDisplayWidth!) /
+                            _currentDisplayWidth!;
+                        final scaleY =
+                            (region.originalHeight ?? _currentDisplayHeight!) /
+                            _currentDisplayHeight!;
+
                         final updatedRegion = region.copyWith(
-                          x: result.rect.left,
-                          y: result.rect.top,
-                          width: result.rect.width,
-                          height: result.rect.height,
+                          x: result.rect.left * scaleX,
+                          y: result.rect.top * scaleY,
+                          width: result.rect.width * scaleX,
+                          height: result.rect.height * scaleY,
                         );
                         _updateCropRegion(index, updatedRegion);
                       },
