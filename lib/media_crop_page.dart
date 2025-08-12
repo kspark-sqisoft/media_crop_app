@@ -4,6 +4,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_box_transform/flutter_box_transform.dart';
+import 'package:media_kit_video/media_kit_video_controls/media_kit_video_controls.dart'
+    as media_kit_video_controls;
 import 'dart:io';
 import 'crop_region.dart';
 import 'utils.dart';
@@ -122,7 +124,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         });
 
         // 리사이징 완료 후 플래그 해제
-        Future.delayed(const Duration(milliseconds: 300), () {
+        Future.delayed(const Duration(milliseconds: 100), () {
           if (mounted) {
             setState(() {
               _isResizing = false;
@@ -139,6 +141,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
       try {
         final media = Media(path);
         await _player.open(media);
+        await _player.setPlaylistMode(PlaylistMode.single);
 
         // 비디오 메타데이터가 로드될 때까지 대기
         await Future.delayed(const Duration(milliseconds: 1000));
@@ -439,6 +442,48 @@ class _MediaCropPageState extends State<MediaCropPage> {
         );
       }
     }
+  }
+
+  /// 모든 크롭 영역에 대해 크롭 작업 수행
+  void _cropAllRegions() {
+    if (_cropRegions.isEmpty) {
+      // 크롭 영역이 없으면 알림
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('크롭할 영역이 없습니다.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // 크롭 작업 수행 (현재는 콘솔에 정보만 출력)
+    print('=== 모든 크롭 영역 크롭 시작 ===');
+    for (int i = 0; i < _cropRegions.length; i++) {
+      final region = _cropRegions[i];
+      final pixelX = (region.x * _mediaWidth!).toInt();
+      final pixelY = (region.y * _mediaHeight!).toInt();
+      final pixelWidth = (region.width * _mediaWidth!).toInt();
+      final pixelHeight = (region.height * _mediaHeight!).toInt();
+
+      print('영역 ${i + 1}: ${region.name}');
+      print('  위치: ($pixelX, $pixelY)');
+      print('  크기: ${pixelWidth}x$pixelHeight');
+      print('  색상: ${region.color}');
+    }
+
+    // 성공 메시지 표시
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${_cropRegions.length}개 영역 크롭 완료!'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _cropRegion() {
+    print('=== 크롭 영역 크롭 시작 ===');
   }
 
   @override
@@ -768,6 +813,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
                             const SizedBox(height: 8),
                             // 입력 필드들
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 // X 좌표 입력
                                 Expanded(
@@ -965,6 +1011,35 @@ class _MediaCropPageState extends State<MediaCropPage> {
                                     ],
                                   ),
                                 ),
+                                const SizedBox(width: 8),
+                                // 크롭하기 버튼
+                                SizedBox(
+                                  width: 80,
+                                  height: 28,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      _cropRegion();
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green[600],
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      '크롭하기',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -974,6 +1049,38 @@ class _MediaCropPageState extends State<MediaCropPage> {
                   )
                 : Container(), // 크롭 영역이 없을 때는 빈 컨테이너
           ),
+
+          // 모두 크롭 하기 버튼
+          if (_cropRegions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _cropAllRegions,
+                      icon: const Icon(Icons.crop, size: 16),
+                      label: const Text(
+                        '모두 크롭 하기',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // 하단 닫기 버튼 (항상 하단에 고정)
           Padding(
@@ -1061,6 +1168,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         controller: _controller,
         fit: BoxFit.contain,
         fill: Colors.transparent,
+        controls: media_kit_video_controls.NoVideoControls,
       );
     } else {
       mediaWidget = Image.file(File(_mediaPath!), fit: BoxFit.contain);
