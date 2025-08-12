@@ -21,6 +21,9 @@ class _MediaCropPageState extends State<MediaCropPage> {
   late final VideoController _controller;
   int? _mediaWidth;
   int? _mediaHeight;
+  double? _currentDisplayWidth;
+  double? _currentDisplayHeight;
+  bool _isCalculatingSize = false; // 중복 계산 방지 플래그
 
   @override
   void initState() {
@@ -49,6 +52,49 @@ class _MediaCropPageState extends State<MediaCropPage> {
     setState(() {
       _isSettingsPanelOpen = !_isSettingsPanelOpen;
     });
+  }
+
+  void _calculateCurrentDisplaySize([BoxConstraints? constraints]) {
+    // 이미 계산 중이면 중복 실행 방지
+    if (_isCalculatingSize) return;
+
+    _isCalculatingSize = true;
+
+    // LayoutBuilder의 constraints를 사용하거나 MediaQuery를 사용
+    double screenWidth, screenHeight;
+
+    if (constraints != null) {
+      screenWidth = constraints.maxWidth;
+      screenHeight = constraints.maxHeight;
+    } else {
+      screenWidth = MediaQuery.of(context).size.width;
+      screenHeight = MediaQuery.of(context).size.height;
+    }
+
+    if (_mediaWidth != null && _mediaHeight != null) {
+      final aspectRatio = _mediaWidth! / _mediaHeight!;
+
+      // BoxFit.contain으로 표시되는 크기 계산
+      double displayWidth, displayHeight;
+
+      if (screenWidth / screenHeight > aspectRatio) {
+        // 화면이 더 넓음 - 높이에 맞춤
+        displayHeight = screenHeight;
+        displayWidth = screenHeight * aspectRatio;
+      } else {
+        // 화면이 더 좁음 - 너비에 맞춤
+        displayWidth = screenWidth;
+        displayHeight = screenWidth / aspectRatio;
+      }
+
+      setState(() {
+        _currentDisplayWidth = displayWidth;
+        _currentDisplayHeight = displayHeight;
+      });
+    }
+
+    // 계산 완료 후 플래그 해제
+    _isCalculatingSize = false;
   }
 
   void _getMediaDimensions(String path) async {
@@ -186,6 +232,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
             });
           }
         }
+
+        // 비디오 크기 설정 후 현재 표시 크기 계산
+        if (_mediaWidth != null && _mediaHeight != null) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          _calculateCurrentDisplaySize();
+        }
       } catch (e) {
         print('비디오 크기 파싱 오류: $e');
         setState(() {
@@ -207,9 +259,19 @@ class _MediaCropPageState extends State<MediaCropPage> {
               _mediaHeight = image.height;
             });
             print('이미지 크기: ${image.width} × ${image.height}');
+
+            // 이미지 크기 설정 후 현재 표시 크기 계산
+            await Future.delayed(const Duration(milliseconds: 100));
+            _calculateCurrentDisplaySize();
           } else {
             // image 패키지로 파싱 실패 시 수동 파싱 시도
             _parseImageSizeManually(bytes);
+
+            // 수동 파싱 후 현재 표시 크기 계산
+            if (_mediaWidth != null && _mediaHeight != null) {
+              await Future.delayed(const Duration(milliseconds: 100));
+              _calculateCurrentDisplaySize();
+            }
           }
         }
       } catch (e) {
@@ -220,6 +282,12 @@ class _MediaCropPageState extends State<MediaCropPage> {
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
             _parseImageSizeManually(bytes);
+
+            // 수동 파싱 후 현재 표시 크기 계산
+            if (_mediaWidth != null && _mediaHeight != null) {
+              await Future.delayed(const Duration(milliseconds: 100));
+              _calculateCurrentDisplaySize();
+            }
           }
         } catch (e2) {
           print('수동 파싱도 실패: $e2');
@@ -322,10 +390,23 @@ class _MediaCropPageState extends State<MediaCropPage> {
                 _isDragging = false;
               });
             },
-            child: SizedBox(
-              width: double.infinity,
-              height: double.infinity,
-              child: _buildMediaContent(),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // 레이아웃 변경 시 현재 표시 크기 재계산 (한 번만)
+                if (_mediaWidth != null &&
+                    _mediaHeight != null &&
+                    !_isCalculatingSize) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _calculateCurrentDisplaySize(constraints);
+                  });
+                }
+
+                return SizedBox(
+                  width: double.infinity,
+                  height: double.infinity,
+                  child: _buildMediaContent(),
+                );
+              },
             ),
           ),
           // 설정 패널 (오른쪽 상단에 겹쳐서 표시)
@@ -363,7 +444,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
         icon: const Icon(Icons.settings, size: 16),
         tooltip: '설정 패널 열기',
         padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+        constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
         style: IconButton.styleFrom(
           backgroundColor: Colors.blue[100],
           foregroundColor: Colors.blue[700],
@@ -379,11 +460,11 @@ class _MediaCropPageState extends State<MediaCropPage> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
+        color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -484,31 +565,36 @@ class _MediaCropPageState extends State<MediaCropPage> {
           ],
           const SizedBox(height: 12),
           // 닫기 버튼을 하단에 배치
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TextButton(
-                onPressed: _toggleSettingsPanel,
-                style: TextButton.styleFrom(
-                  backgroundColor: Colors.grey[100],
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: _toggleSettingsPanel,
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.grey[100],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    child: Text(
+                      '닫기',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ),
-                child: Text(
-                  '닫기',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -517,37 +603,121 @@ class _MediaCropPageState extends State<MediaCropPage> {
 
   Widget _buildMediaContent() {
     if (_mediaPath == null) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _isDragging ? Icons.cloud_upload : Icons.cloud_upload_outlined,
-            size: 64,
-            color: _isDragging ? Colors.blue : Colors.grey,
+      return Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          border: Border.all(
+            color: Colors.grey[300]!,
+            width: 2,
+            style: BorderStyle.solid,
           ),
-          const SizedBox(height: 16),
-          Text(
-            _isDragging ? '파일을 여기에 놓으세요' : '비디오나 이미지 파일을 드래그해서 넣으세요',
-            style: TextStyle(
-              fontSize: 18,
-              color: _isDragging ? Colors.blue : Colors.grey[600],
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '지원 형식: MP4, AVI, MOV, JPG, PNG, GIF',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-          ),
-        ],
+        ),
+        child: _isDragging
+            ? const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_upload, size: 64, color: Colors.blue),
+                    SizedBox(height: 16),
+                    Text(
+                      '파일을 여기에 드래그하세요',
+                      style: TextStyle(fontSize: 18, color: Colors.blue),
+                    ),
+                  ],
+                ),
+              )
+            : const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.image, size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text(
+                      '비디오 또는 이미지 파일을 드래그하세요',
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
       );
     }
 
+    Widget mediaWidget;
     if (_isVideo) {
-      return Video(controller: _controller, fit: BoxFit.contain);
+      mediaWidget = Video(controller: _controller, fit: BoxFit.contain);
     } else {
-      return Image.file(File(_mediaPath!), fit: BoxFit.contain);
+      mediaWidget = Image.file(File(_mediaPath!), fit: BoxFit.contain);
     }
+
+    return Stack(
+      children: [
+        // 메인 미디어 위젯
+        Positioned.fill(child: mediaWidget),
+        // 크기 정보 박스를 오른쪽 하단에 배치
+        if (_mediaWidth != null && _mediaHeight != null)
+          Positioned(bottom: 20, right: 20, child: _buildSizeInfoBox()),
+      ],
+    );
+  }
+
+  Widget _buildSizeInfoBox() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '원본 크기',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${_mediaWidth ?? 0} × ${_mediaHeight ?? 0}',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.blue[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '현재 크기',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${_currentDisplayWidth?.toStringAsFixed(0) ?? '0'} × ${_currentDisplayHeight?.toStringAsFixed(0) ?? '0'}',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.green[700],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   bool _isVideoFile(String path) {
