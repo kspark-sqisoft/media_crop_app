@@ -1,0 +1,565 @@
+import 'package:flutter/material.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import 'package:image/image.dart' as img;
+import 'dart:io';
+
+class MediaCropPage extends StatefulWidget {
+  const MediaCropPage({super.key});
+
+  @override
+  State<MediaCropPage> createState() => _MediaCropPageState();
+}
+
+class _MediaCropPageState extends State<MediaCropPage> {
+  bool _isDragging = false;
+  String? _mediaPath;
+  bool _isVideo = false;
+  bool _isSettingsPanelOpen = true; // 설정 패널 열림/닫힘 상태
+  late final Player _player;
+  late final VideoController _controller;
+  int? _mediaWidth;
+  int? _mediaHeight;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = Player();
+    _controller = VideoController(_player);
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  void _resetMedia() {
+    setState(() {
+      _mediaPath = null;
+      _isVideo = false;
+      _mediaWidth = null;
+      _mediaHeight = null;
+    });
+    _player.stop();
+  }
+
+  void _toggleSettingsPanel() {
+    setState(() {
+      _isSettingsPanelOpen = !_isSettingsPanelOpen;
+    });
+  }
+
+  void _getMediaDimensions(String path) async {
+    if (_isVideo) {
+      // 비디오의 경우 media_kit을 사용하여 실제 메타데이터에서 크기 정보 가져오기
+      try {
+        final media = Media(path);
+        await _player.open(media);
+
+        // 비디오 메타데이터가 로드될 때까지 대기
+        await Future.delayed(const Duration(milliseconds: 1000));
+
+        // 비디오 스트림 정보에서 크기 가져오기
+        final tracks = _player.state.tracks;
+        print('전체 트랙 정보: $tracks');
+
+        if (tracks.video.isNotEmpty) {
+          final videoTrack = tracks.video.first;
+          print('비디오 트랙 정보: $videoTrack');
+          print('비디오 트랙 타입: ${videoTrack.runtimeType}');
+
+          // VideoTrack의 속성들을 직접 확인
+          print('비디오 트랙 속성들: ${videoTrack.toString()}');
+
+          // 플레이어 상태에서 크기 정보 확인
+          final playerState = _player.state;
+          print('플레이어 상태: $playerState');
+
+          // 비디오 크기 정보를 찾기 위해 다양한 방법 시도
+          bool sizeFound = false;
+
+          // 1. VideoTrack에서 직접 크기 정보 찾기
+          try {
+            // VideoTrack의 모든 public 속성 확인
+            final trackString = videoTrack.toString();
+            print('트랙 문자열: $trackString');
+
+            // 문자열에서 크기 정보 패턴 찾기 (w: 1920, h: 1080 형태)
+            final sizePattern = RegExp(
+              r'w:\s*(\d+),\s*h:\s*(\d+)',
+              caseSensitive: false,
+            );
+            final match = sizePattern.firstMatch(trackString);
+            if (match != null) {
+              final width = int.tryParse(match.group(1) ?? '');
+              final height = int.tryParse(match.group(2) ?? '');
+              if (width != null && height != null) {
+                setState(() {
+                  _mediaWidth = width;
+                  _mediaHeight = height;
+                });
+                print('비디오 크기 (트랙 패턴): $_mediaWidth × $_mediaHeight');
+                sizeFound = true;
+              }
+            }
+          } catch (e) {
+            print('트랙에서 크기 정보 추출 실패: $e');
+          }
+
+          // 2. 여전히 크기 정보가 없으면 플레이어 상태에서 찾기
+          if (!sizeFound) {
+            try {
+              final stateString = playerState.toString();
+              print('플레이어 상태 문자열: $stateString');
+
+              // VideoParams에서 크기 정보 찾기 (w: 1920, h: 1080 형태)
+              final videoParamsPattern = RegExp(
+                r'w:\s*(\d+),\s*h:\s*(\d+)',
+                caseSensitive: false,
+              );
+              final videoMatch = videoParamsPattern.firstMatch(stateString);
+              if (videoMatch != null) {
+                final width = int.tryParse(videoMatch.group(1) ?? '');
+                final height = int.tryParse(videoMatch.group(2) ?? '');
+                if (width != null && height != null) {
+                  setState(() {
+                    _mediaWidth = width;
+                    _mediaHeight = height;
+                  });
+                  print('비디오 크기 (VideoParams): $_mediaWidth × $_mediaHeight');
+                  sizeFound = true;
+                }
+              }
+
+              // 여전히 없으면 width, height 필드에서 찾기
+              if (!sizeFound) {
+                final widthHeightPattern = RegExp(
+                  r'width:\s*(\d+),\s*height:\s*(\d+)',
+                  caseSensitive: false,
+                );
+                final whMatch = widthHeightPattern.firstMatch(stateString);
+                if (whMatch != null) {
+                  final width = int.tryParse(whMatch.group(1) ?? '');
+                  final height = int.tryParse(whMatch.group(2) ?? '');
+                  if (width != null && height != null) {
+                    setState(() {
+                      _mediaWidth = width;
+                      _mediaHeight = height;
+                    });
+                    print(
+                      '비디오 크기 (width/height): $_mediaWidth × $_mediaHeight',
+                    );
+                    sizeFound = true;
+                  }
+                }
+              }
+            } catch (e) {
+              print('플레이어 상태에서 크기 정보 추출 실패: $e');
+            }
+          }
+
+          // 3. 여전히 크기 정보가 없으면 직접 접근 시도
+          if (!sizeFound) {
+            try {
+              // playerState에서 직접 width, height 접근
+              if (playerState.width != null && playerState.height != null) {
+                setState(() {
+                  _mediaWidth = playerState.width;
+                  _mediaHeight = playerState.height;
+                });
+                print('비디오 크기 (직접 접근): $_mediaWidth × $_mediaHeight');
+                sizeFound = true;
+              }
+            } catch (e) {
+              print('직접 접근 실패: $e');
+            }
+          }
+
+          // 4. 여전히 크기 정보가 없으면 오류
+          if (!sizeFound) {
+            print('비디오 크기 정보를 가져올 수 없음');
+            setState(() {
+              _mediaWidth = 0;
+              _mediaHeight = 0;
+            });
+          }
+        }
+      } catch (e) {
+        print('비디오 크기 파싱 오류: $e');
+        setState(() {
+          _mediaWidth = 0;
+          _mediaHeight = 0;
+        });
+      }
+    } else {
+      // 이미지의 경우 image 패키지를 사용하여 정확한 크기 가져오기
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          final image = img.decodeImage(bytes);
+
+          if (image != null) {
+            setState(() {
+              _mediaWidth = image.width;
+              _mediaHeight = image.height;
+            });
+            print('이미지 크기: ${image.width} × ${image.height}');
+          } else {
+            // image 패키지로 파싱 실패 시 수동 파싱 시도
+            _parseImageSizeManually(bytes);
+          }
+        }
+      } catch (e) {
+        print('이미지 크기 파싱 오류: $e');
+        // 오류 발생 시 수동 파싱 시도
+        try {
+          final file = File(path);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            _parseImageSizeManually(bytes);
+          }
+        } catch (e2) {
+          print('수동 파싱도 실패: $e2');
+          setState(() {
+            _mediaWidth = 0;
+            _mediaHeight = 0;
+          });
+        }
+      }
+    }
+  }
+
+  void _parseImageSizeManually(List<int> bytes) {
+    if (bytes.length < 24) return;
+
+    try {
+      if (bytes[0] == 0xFF && bytes[1] == 0xD8) {
+        // JPEG 파일 크기 파싱
+        int i = 2;
+        while (i < bytes.length - 9) {
+          if (bytes[i] == 0xFF && bytes[i + 1] == 0xC0) {
+            // SOF0 마커 (Start of Frame)
+            if (i + 9 < bytes.length) {
+              setState(() {
+                _mediaHeight = (bytes[i + 5] << 8) | bytes[i + 6];
+                _mediaWidth = (bytes[i + 7] << 8) | bytes[i + 8];
+              });
+              print('JPEG 수동 파싱: $_mediaWidth × $_mediaHeight');
+            }
+            break;
+          }
+          i++;
+        }
+      } else if (bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4E &&
+          bytes[3] == 0x47) {
+        // PNG 파일 크기 파싱
+        if (bytes.length > 32) {
+          setState(() {
+            _mediaWidth =
+                (bytes[16] << 24) |
+                (bytes[17] << 16) |
+                (bytes[18] << 8) |
+                bytes[19];
+            _mediaHeight =
+                (bytes[20] << 24) |
+                (bytes[21] << 16) |
+                (bytes[22] << 8) |
+                bytes[23];
+          });
+          print('PNG 수동 파싱: $_mediaWidth × $_mediaHeight');
+        }
+      } else if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
+        // GIF 파일 크기 파싱
+        if (bytes.length > 10) {
+          setState(() {
+            _mediaWidth = bytes[6] | (bytes[7] << 8);
+            _mediaHeight = bytes[8] | (bytes[9] << 8);
+          });
+          print('GIF 수동 파싱: $_mediaWidth × $_mediaHeight');
+        }
+      }
+    } catch (e) {
+      print('수동 파싱 중 오류: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // 미디어 영역 (전체 화면)
+          DropTarget(
+            onDragDone: (detail) {
+              if (detail.files.isNotEmpty) {
+                final file = detail.files.first;
+                final path = file.path;
+                setState(() {
+                  _mediaPath = path;
+                  _isVideo = _isVideoFile(path);
+                });
+
+                if (_isVideo) {
+                  _player.open(Media(path));
+                }
+
+                // 미디어 크기 정보 가져오기
+                _getMediaDimensions(path);
+              }
+            },
+            onDragEntered: (detail) {
+              setState(() {
+                _isDragging = true;
+              });
+            },
+            onDragExited: (detail) {
+              setState(() {
+                _isDragging = false;
+              });
+            },
+            child: SizedBox(
+              width: double.infinity,
+              height: double.infinity,
+              child: _buildMediaContent(),
+            ),
+          ),
+          // 설정 패널 (오른쪽 상단에 겹쳐서 표시)
+          if (_mediaPath != null)
+            Positioned(
+              top: 20,
+              right: 20,
+              width: _isSettingsPanelOpen ? 300 : null,
+              child: _isSettingsPanelOpen
+                  ? _buildSettingsPanel()
+                  : _buildToggleButton(),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: Colors.grey[300]!, width: 1),
+      ),
+      child: IconButton(
+        onPressed: _toggleSettingsPanel,
+        icon: const Icon(Icons.settings, size: 16),
+        tooltip: '설정 패널 열기',
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.blue[100],
+          foregroundColor: Colors.blue[700],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsPanel() {
+    final fileName = _mediaPath?.split('/').last ?? '';
+    final filePath = _mediaPath ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey[300]!, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _isVideo ? Icons.video_file : Icons.image,
+                color: Colors.blue[600],
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  fileName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                onPressed: _resetMedia,
+                icon: const Icon(Icons.refresh, size: 18),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                tooltip: '초기화',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.orange[100],
+                  foregroundColor: Colors.orange[700],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            filePath,
+            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          if (_mediaWidth != null && _mediaHeight != null) ...[
+            Row(
+              children: [
+                Icon(Icons.aspect_ratio, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '크기: $_mediaWidth × $_mediaHeight',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '타입: ${_isVideo ? '비디오' : '이미지'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Icon(Icons.hourglass_empty, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '파일 정보 로딩 중...',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          // 닫기 버튼을 하단에 배치
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton(
+                onPressed: _toggleSettingsPanel,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.grey[100],
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                child: Text(
+                  '닫기',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMediaContent() {
+    if (_mediaPath == null) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _isDragging ? Icons.cloud_upload : Icons.cloud_upload_outlined,
+            size: 64,
+            color: _isDragging ? Colors.blue : Colors.grey,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _isDragging ? '파일을 여기에 놓으세요' : '비디오나 이미지 파일을 드래그해서 넣으세요',
+            style: TextStyle(
+              fontSize: 18,
+              color: _isDragging ? Colors.blue : Colors.grey[600],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '지원 형식: MP4, AVI, MOV, JPG, PNG, GIF',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+          ),
+        ],
+      );
+    }
+
+    if (_isVideo) {
+      return Video(controller: _controller, fit: BoxFit.contain);
+    } else {
+      return Image.file(File(_mediaPath!), fit: BoxFit.contain);
+    }
+  }
+
+  bool _isVideoFile(String path) {
+    final extension = path.split('.').last.toLowerCase();
+    return [
+      'mp4',
+      'avi',
+      'mov',
+      'mkv',
+      'wmv',
+      'flv',
+      'webm',
+    ].contains(extension);
+  }
+}
