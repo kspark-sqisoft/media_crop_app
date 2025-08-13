@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 class CropRegion {
+  final int id; // 크롭 영역의 고유 ID
   final String name;
   final double x; // 원본 미디어 크기 대비 상대 X 좌표 (0.0 ~ 1.0)
   final double y; // 원본 미디어 크기 대비 상대 Y 좌표 (0.0 ~ 1.0)
@@ -9,6 +10,7 @@ class CropRegion {
   final Color color; // 크롭 영역의 고유 색상
 
   CropRegion({
+    required this.id,
     required this.name,
     required this.x,
     required this.y,
@@ -18,6 +20,7 @@ class CropRegion {
   });
 
   CropRegion copyWith({
+    int? id,
     String? name,
     double? x,
     double? y,
@@ -26,6 +29,7 @@ class CropRegion {
     Color? color,
   }) {
     return CropRegion(
+      id: id ?? this.id,
       name: name ?? this.name,
       x: x ?? this.x,
       y: y ?? this.y,
@@ -37,6 +41,6 @@ class CropRegion {
 
   @override
   String toString() {
-    return 'CropRegion(name: $name, x: $x, y: $y, width: $width, height: $height, color: $color)';
+    return 'CropRegion(id: $id, name: $name, x: $x, y: $y, width: $width, height: $height, color: $color)';
   }
 }

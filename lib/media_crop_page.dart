@@ -100,6 +100,10 @@ class _MediaCropPageState extends State<MediaCropPage> {
   /// 각 크롭 영역은 고유한 ID를 가지며, 이 값은 계속 증가합니다
   int _nextRegionId = 1;
 
+  /// 현재 선택된 크롭 영역의 ID
+  /// null일 경우 아무것도 선택되지 않은 상태
+  int? _selectedRegionId;
+
   // ==================== 창 크기 변화 추적 ====================
   /// 현재 창 크기가 변화하고 있는지 여부를 나타내는 플래그
   /// true일 때는 크롭 영역의 자동 조정을 방지하여 사용자 경험을 개선합니다
@@ -173,6 +177,9 @@ class _MediaCropPageState extends State<MediaCropPage> {
       // 크롭 영역 ID 카운터를 1로 리셋
       // 새로운 미디어에 대해 크롭 영역을 다시 생성할 수 있도록 합니다
       _nextRegionId = 1;
+
+      // 선택된 크롭 영역 초기화
+      _selectedRegionId = null;
     });
 
     // MediaKit 플레이어를 정지
@@ -187,6 +194,24 @@ class _MediaCropPageState extends State<MediaCropPage> {
       // 현재 상태의 반대값으로 설정
       // true면 false로, false면 true로 변경
       _isSettingsPanelOpen = !_isSettingsPanelOpen;
+    });
+  }
+
+  /// 특정 크롭 영역을 선택하는 메서드
+  /// 선택된 영역은 시각적으로 강조되고, Stack에서 최상위로 이동됩니다
+  ///
+  /// [regionId] 선택할 크롭 영역의 ID
+  void _selectCropRegion(int regionId) {
+    setState(() {
+      _selectedRegionId = regionId;
+    });
+  }
+
+  /// 크롭 영역 선택을 해제하는 메서드
+  /// 모든 크롭 영역의 선택 상태를 해제합니다
+  void _deselectCropRegion() {
+    setState(() {
+      _selectedRegionId = null;
     });
   }
 
@@ -573,6 +598,7 @@ class _MediaCropPageState extends State<MediaCropPage> {
 
       // ==================== 새로운 크롭 영역 생성 ====================
       final newRegion = CropRegion(
+        id: _nextRegionId, // 고유 ID 할당
         name: '영역 $_nextRegionId', // 순차적 이름 (영역 1, 영역 2, ...)
         x: cropLeft, // 상대 X 좌표 (0.0 ~ 1.0)
         y: cropTop, // 상대 Y 좌표 (0.0 ~ 1.0)
@@ -589,6 +615,9 @@ class _MediaCropPageState extends State<MediaCropPage> {
         // 다음 크롭 영역의 ID를 증가시킴
         // 이는 각 크롭 영역이 고유한 ID를 가지도록 보장합니다
         _nextRegionId++;
+
+        // 새로 추가된 크롭 영역을 자동으로 선택
+        _selectedRegionId = newRegion.id;
       });
     }
   }
@@ -769,36 +798,42 @@ class _MediaCropPageState extends State<MediaCropPage> {
                   _isDragging = false; // 드래그 상태 비활성화
                 });
               },
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // ==================== 창 크기 변화 감지 및 대응 ====================
-                  // constraints 변경을 감지하여 크기 재계산 (크롭 영역 값은 변경하지 않음)
-                  if (_mediaWidth != null && _mediaHeight != null) {
-                    // 이전 constraints와 비교하여 실제로 변경된 경우에만 호출
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      // 현재 constraints가 이전과 다른 경우에만 크기 재계산
-                      if (_currentDisplayWidth == null ||
-                          _currentDisplayHeight == null ||
-                          constraints.maxWidth != _currentDisplayWidth ||
-                          constraints.maxHeight != _currentDisplayHeight) {
-                        _calculateCurrentDisplaySize(constraints);
-                      }
-                    });
-                  }
-
-                  // ==================== 미디어 콘텐츠 영역 ====================
-                  // 전체 화면을 차지하는 SizedBox
-                  return SizedBox(
-                    width: double.infinity, // 전체 너비 사용
-                    height: double.infinity, // 전체 높이 사용
-                    child: LayoutBuilder(
-                      builder: (context, innerConstraints) {
-                        // 실제 미디어 콘텐츠를 렌더링
-                        return _buildMediaContent(innerConstraints);
-                      },
-                    ),
-                  );
+              child: GestureDetector(
+                onTap: () {
+                  // 빈 공간을 클릭했을 때 선택 해제
+                  _deselectCropRegion();
                 },
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // ==================== 창 크기 변화 감지 및 대응 ====================
+                    // constraints 변경을 감지하여 크기 재계산 (크롭 영역 값은 변경하지 않음)
+                    if (_mediaWidth != null && _mediaHeight != null) {
+                      // 이전 constraints와 비교하여 실제로 변경된 경우에만 호출
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        // 현재 constraints가 이전과 다른 경우에만 크기 재계산
+                        if (_currentDisplayWidth == null ||
+                            _currentDisplayHeight == null ||
+                            constraints.maxWidth != _currentDisplayWidth ||
+                            constraints.maxHeight != _currentDisplayHeight) {
+                          _calculateCurrentDisplaySize(constraints);
+                        }
+                      });
+                    }
+
+                    // ==================== 미디어 콘텐츠 영역 ====================
+                    // 전체 화면을 차지하는 SizedBox
+                    return SizedBox(
+                      width: double.infinity, // 전체 너비 사용
+                      height: double.infinity, // 전체 높이 사용
+                      child: LayoutBuilder(
+                        builder: (context, innerConstraints) {
+                          // 실제 미디어 콘텐츠를 렌더링
+                          return _buildMediaContent(innerConstraints);
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
 
@@ -1033,282 +1068,328 @@ class _MediaCropPageState extends State<MediaCropPage> {
                     itemCount: _cropRegions.length,
                     itemBuilder: (context, index) {
                       final region = _cropRegions[index];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: region.color.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: region.color.withValues(alpha: 0.6),
+                      final isSelected = _selectedRegionId == region.id;
+
+                      return GestureDetector(
+                        onTap: () => _selectCropRegion(region.id),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 4),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? region.color.withValues(
+                                    alpha: 0.4,
+                                  ) // 선택된 경우 더 진한 색상
+                                : region.color.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: isSelected
+                                  ? region
+                                        .color // 선택된 경우 더 진한 테두리
+                                  : region.color.withValues(alpha: 0.6),
+                              width: isSelected ? 2 : 1, // 선택된 경우 더 두꺼운 테두리
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: region.color.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ]
+                                : null,
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 영역 이름과 삭제 버튼
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  region.name,
-                                  style: const TextStyle(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: Icon(
-                                    Icons.delete,
-                                    color: region.color,
-                                    size: 16,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _cropRegions.removeAt(index);
-                                    });
-                                  },
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 24,
-                                    minHeight: 24,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            // 입력 필드들
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                // X 좌표 입력
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 영역 이름과 삭제 버튼
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
                                     children: [
-                                      Text(
-                                        'X',
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.w500,
+                                      if (isSelected)
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: region.color,
+                                          size: 16,
                                         ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      SizedBox(
-                                        height: 28,
-                                        child: TextField(
-                                          controller: TextEditingController(
-                                            text: (region.x * _mediaWidth!)
-                                                .toInt()
-                                                .toString(),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.red,
-                                          ),
-                                          decoration: InputDecoration(
-                                            contentPadding:
-                                                const EdgeInsets.all(6),
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            isDense: true,
-                                          ),
-                                          onSubmitted: (value) {
-                                            _updateCropRegionFromList(
-                                              index,
-                                              value,
-                                              'x',
-                                            );
-                                          },
+                                      if (isSelected) const SizedBox(width: 4),
+                                      Text(
+                                        region.name,
+                                        style: TextStyle(
+                                          color: isSelected
+                                              ? Colors.white
+                                              : Colors.red,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Y 좌표 입력
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Y',
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      SizedBox(
-                                        height: 28,
-                                        child: TextField(
-                                          controller: TextEditingController(
-                                            text: (region.y * _mediaHeight!)
-                                                .toInt()
-                                                .toString(),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.red,
-                                          ),
-                                          decoration: InputDecoration(
-                                            contentPadding:
-                                                const EdgeInsets.all(6),
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            isDense: true,
-                                          ),
-                                          onSubmitted: (value) {
-                                            _updateCropRegionFromList(
-                                              index,
-                                              value,
-                                              'y',
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Width 입력
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'W',
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      SizedBox(
-                                        height: 28,
-                                        child: TextField(
-                                          controller: TextEditingController(
-                                            text: (region.width * _mediaWidth!)
-                                                .toInt()
-                                                .toString(),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.red,
-                                          ),
-                                          decoration: InputDecoration(
-                                            contentPadding:
-                                                const EdgeInsets.all(6),
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            isDense: true,
-                                          ),
-                                          onSubmitted: (value) {
-                                            _updateCropRegionFromList(
-                                              index,
-                                              value,
-                                              'width',
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Height 입력
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'H',
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      SizedBox(
-                                        height: 28,
-                                        child: TextField(
-                                          controller: TextEditingController(
-                                            text:
-                                                (region.height * _mediaHeight!)
-                                                    .toInt()
-                                                    .toString(),
-                                          ),
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            color: Colors.red,
-                                          ),
-                                          decoration: InputDecoration(
-                                            contentPadding:
-                                                const EdgeInsets.all(6),
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            isDense: true,
-                                          ),
-                                          onSubmitted: (value) {
-                                            _updateCropRegionFromList(
-                                              index,
-                                              value,
-                                              'height',
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // 크롭하기 버튼
-                                SizedBox(
-                                  width: 80,
-                                  height: 28,
-                                  child: ElevatedButton(
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.delete,
+                                      color: region.color,
+                                      size: 16,
+                                    ),
                                     onPressed: () {
-                                      _cropRegion();
+                                      setState(() {
+                                        // 선택된 영역이 삭제되는 경우 선택 상태 해제
+                                        if (_selectedRegionId == region.id) {
+                                          _selectedRegionId = null;
+                                        }
+                                        _cropRegions.removeAt(index);
+                                      });
                                     },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green[600],
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 24,
+                                      minHeight: 24,
                                     ),
-                                    child: const Text(
-                                      '크롭하기',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              // 입력 필드들
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  // X 좌표 입력
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'X',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        SizedBox(
+                                          height: 28,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text: (region.x * _mediaWidth!)
+                                                  .toInt()
+                                                  .toString(),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              color: Colors.red,
+                                            ),
+                                            decoration: InputDecoration(
+                                              contentPadding:
+                                                  const EdgeInsets.all(6),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              isDense: true,
+                                            ),
+                                            onSubmitted: (value) {
+                                              _updateCropRegionFromList(
+                                                index,
+                                                value,
+                                                'x',
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Y 좌표 입력
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Y',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        SizedBox(
+                                          height: 28,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text: (region.y * _mediaHeight!)
+                                                  .toInt()
+                                                  .toString(),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              color: Colors.red,
+                                            ),
+                                            decoration: InputDecoration(
+                                              contentPadding:
+                                                  const EdgeInsets.all(6),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              isDense: true,
+                                            ),
+                                            onSubmitted: (value) {
+                                              _updateCropRegionFromList(
+                                                index,
+                                                value,
+                                                'y',
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Width 입력
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'W',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        SizedBox(
+                                          height: 28,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.width * _mediaWidth!)
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              color: Colors.red,
+                                            ),
+                                            decoration: InputDecoration(
+                                              contentPadding:
+                                                  const EdgeInsets.all(6),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              isDense: true,
+                                            ),
+                                            onSubmitted: (value) {
+                                              _updateCropRegionFromList(
+                                                index,
+                                                value,
+                                                'width',
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Height 입력
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'H',
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        SizedBox(
+                                          height: 28,
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text:
+                                                  (region.height *
+                                                          _mediaHeight!)
+                                                      .toInt()
+                                                      .toString(),
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              color: Colors.red,
+                                            ),
+                                            decoration: InputDecoration(
+                                              contentPadding:
+                                                  const EdgeInsets.all(6),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              isDense: true,
+                                            ),
+                                            onSubmitted: (value) {
+                                              _updateCropRegionFromList(
+                                                index,
+                                                value,
+                                                'height',
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // 크롭하기 버튼
+                                  SizedBox(
+                                    width: 80,
+                                    height: 28,
+                                    child: ElevatedButton(
+                                      onPressed: () {
+                                        _cropRegion();
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green[600],
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        '크롭하기',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -1485,331 +1566,378 @@ class _MediaCropPageState extends State<MediaCropPage> {
                 children: [
                   // ==================== 크롭 영역들 ====================
                   // 사용자가 설정한 모든 크롭 영역을 TransformableBox로 렌더링
-                  ..._cropRegions.asMap().entries.map((entry) {
-                    final index = entry.key; // 크롭 영역의 인덱스
-                    final region = entry.value; // 크롭 영역 데이터
+                  // 선택된 영역은 Stack의 최상위에 위치하도록 정렬
+                  ...(() {
+                    final sortedEntries = _cropRegions.asMap().entries.toList();
 
-                    return TransformableBox(
-                      key: ValueKey('crop_region_$index'),
-                      rect: Rect.fromLTWH(
-                        // 상대 좌표를 실제 화면 좌표로 변환
-                        region.x * _currentDisplayWidth!,
-                        region.y * _currentDisplayHeight!,
-                        region.width * _currentDisplayWidth!,
-                        region.height * _currentDisplayHeight!,
-                      ),
-                      clampingRect: Rect.fromLTWH(
-                        0,
-                        0,
-                        _currentDisplayWidth ?? 0,
-                        _currentDisplayHeight ?? 0,
-                      ),
-                      onChanged: (result, event) {
-                        // 창 크기 변화 중일 때만 차단
-                        if (_isResizing) {
-                          return;
-                        }
+                    sortedEntries.sort((a, b) {
+                      // 선택된 영역을 마지막에 배치하여 Stack에서 최상위가 되도록 함
+                      final aIsSelected = _selectedRegionId == a.value.id;
+                      final bIsSelected = _selectedRegionId == b.value.id;
 
-                        // 사용자의 정상적인 드래그/리사이즈는 허용
-                        // 창 크기 변화로 인한 자동 조정만 차단
+                      if (aIsSelected && !bIsSelected)
+                        return 1; // a가 선택됨, b가 선택되지 않음 -> a를 뒤로
+                      if (!aIsSelected && bIsSelected)
+                        return -1; // a가 선택되지 않음, b가 선택됨 -> b를 뒤로
+                      return 0; // 둘 다 선택되거나 둘 다 선택되지 않음 -> 순서 유지
+                    });
 
-                        // 변경된 좌표를 상대 좌표로 변환하여 저장
-                        final updatedRegion = region.copyWith(
-                          x: result.rect.left / _currentDisplayWidth!,
-                          y: result.rect.top / _currentDisplayHeight!,
-                          width: result.rect.width / _currentDisplayWidth!,
-                          height: result.rect.height / _currentDisplayHeight!,
-                        );
+                    return sortedEntries.map((entry) {
+                      final index = entry.key; // 크롭 영역의 인덱스
+                      final region = entry.value; // 크롭 영역 데이터
+                      final isSelected = _selectedRegionId == region.id;
 
-                        _updateCropRegion(index, updatedRegion);
-                      },
-                      cornerHandleBuilder: (context, handle) {
-                        return DefaultCornerHandle(
-                          handle: handle,
-                          size: 8,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.blue, width: 1),
-                            color: Colors.white,
-                            shape: BoxShape.rectangle,
-                          ),
-                        );
-                      },
-                      sideHandleBuilder: (context, handle) {
-                        return DefaultSideHandle(
-                          handle: handle,
-                          length: 8,
-                          thickness: 8,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.blue, width: 1),
-                            color: Colors.white,
-                            shape: BoxShape.rectangle,
-                          ),
-                        );
-                      },
-                      contentBuilder: (context, rect, flip) {
-                        return DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border.all(color: region.color, width: 2),
-                            color: region.color.withValues(
-                              alpha: 0.2,
-                            ), // 알파값 20%
-                          ),
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.vertical,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Padding(
-                                padding: const EdgeInsets.all(8),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    // 영역 이름
-                                    Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: region.color.withValues(
-                                          alpha: 0.8,
+                      return TransformableBox(
+                        key: ValueKey('crop_region_${region.id}'),
+                        rect: Rect.fromLTWH(
+                          // 상대 좌표를 실제 화면 좌표로 변환
+                          region.x * _currentDisplayWidth!,
+                          region.y * _currentDisplayHeight!,
+                          region.width * _currentDisplayWidth!,
+                          region.height * _currentDisplayHeight!,
+                        ),
+                        clampingRect: Rect.fromLTWH(
+                          0,
+                          0,
+                          _currentDisplayWidth ?? 0,
+                          _currentDisplayHeight ?? 0,
+                        ),
+                        onChanged: (result, event) {
+                          // 창 크기 변화 중일 때만 차단
+                          if (_isResizing) {
+                            return;
+                          }
+
+                          // 사용자의 정상적인 드래그/리사이즈는 허용
+                          // 창 크기 변화로 인한 자동 조정만 차단
+
+                          // 변경된 좌표를 상대 좌표로 변환하여 저장
+                          final updatedRegion = region.copyWith(
+                            x: result.rect.left / _currentDisplayWidth!,
+                            y: result.rect.top / _currentDisplayHeight!,
+                            width: result.rect.width / _currentDisplayWidth!,
+                            height: result.rect.height / _currentDisplayHeight!,
+                          );
+
+                          _updateCropRegion(index, updatedRegion);
+                        },
+                        onTap: () {
+                          // TransformableBox를 탭했을 때 해당 영역을 선택
+                          _selectCropRegion(region.id);
+                        },
+                        cornerHandleBuilder: (context, handle) {
+                          return DefaultCornerHandle(
+                            handle: handle,
+                            size: isSelected ? 12 : 8, // 선택된 경우 더 큰 핸들
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected ? Colors.yellow : Colors.blue,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              color: Colors.white,
+                              shape: BoxShape.rectangle,
+                            ),
+                          );
+                        },
+                        sideHandleBuilder: (context, handle) {
+                          return DefaultSideHandle(
+                            handle: handle,
+                            length: isSelected ? 12 : 8, // 선택된 경우 더 큰 핸들
+                            thickness: isSelected ? 12 : 8,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected ? Colors.yellow : Colors.blue,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              color: Colors.white,
+                              shape: BoxShape.rectangle,
+                            ),
+                          );
+                        },
+                        contentBuilder: (context, rect, flip) {
+                          return DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.yellow
+                                    : region.color,
+                                width: isSelected ? 3 : 2,
+                              ),
+                              color: region.color.withValues(
+                                alpha: isSelected ? 0.3 : 0.2, // 선택된 경우 더 진한 색상
+                              ),
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: Colors.yellow.withValues(
+                                          alpha: 0.5,
                                         ),
-                                        borderRadius: BorderRadius.circular(4),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 4),
                                       ),
-                                      child: Text(
-                                        region.name,
+                                    ]
+                                  : null,
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.vertical,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      // 영역 이름
+                                      Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: region.color.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          region.name,
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // 좌표와 크기 정보
+                                      Text(
+                                        'X: ${(region.x * _mediaWidth!).toInt()}, Y: ${(region.y * _mediaHeight!).toInt()}',
                                         style: const TextStyle(
                                           color: Colors.red,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    // 좌표와 크기 정보
-                                    Text(
-                                      'X: ${(region.x * _mediaWidth!).toInt()}, Y: ${(region.y * _mediaHeight!).toInt()}',
-                                      style: const TextStyle(
-                                        color: Colors.red,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
+                                      Text(
+                                        'W: ${(region.width * _mediaWidth!).toInt()}, H: ${(region.height * _mediaHeight!).toInt()}',
+                                        style: const TextStyle(
+                                          color: Colors.red,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      'W: ${(region.width * _mediaWidth!).toInt()}, H: ${(region.height * _mediaHeight!).toInt()}',
-                                      style: const TextStyle(
-                                        color: Colors.red,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
+                                      const SizedBox(height: 8),
+                                      // 입력 필드들
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // X 좌표 입력
+                                          SizedBox(
+                                            width: 49,
+                                            height: 34,
+                                            child: TextField(
+                                              controller: TextEditingController(
+                                                text: (region.x * _mediaWidth!)
+                                                    .toInt()
+                                                    .toString(),
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red,
+                                              ),
+                                              decoration: InputDecoration(
+                                                labelText: 'X',
+                                                labelStyle: TextStyle(
+                                                  fontSize: 7,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.all(4),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(3),
+                                                ),
+                                              ),
+                                              onSubmitted: (value) {
+                                                final newX = double.tryParse(
+                                                  value,
+                                                );
+                                                if (newX != null) {
+                                                  // 입력된 픽셀 값을 상대 좌표로 변환
+                                                  final updatedRegion = region
+                                                      .copyWith(
+                                                        x: newX / _mediaWidth!,
+                                                      );
+                                                  _updateCropRegion(
+                                                    index,
+                                                    updatedRegion,
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          // Y 좌표 입력
+                                          SizedBox(
+                                            width: 49,
+                                            height: 34,
+                                            child: TextField(
+                                              controller: TextEditingController(
+                                                text: (region.y * _mediaHeight!)
+                                                    .toInt()
+                                                    .toString(),
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red,
+                                              ),
+                                              decoration: InputDecoration(
+                                                labelText: 'Y',
+                                                labelStyle: TextStyle(
+                                                  fontSize: 7,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.all(4),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(3),
+                                                ),
+                                              ),
+                                              onSubmitted: (value) {
+                                                final newY = double.tryParse(
+                                                  value,
+                                                );
+                                                if (newY != null) {
+                                                  // 입력된 값을 원본 미디어 크기 기준으로 변환
+                                                  final scaleY =
+                                                      (_currentDisplayHeight ??
+                                                          1) /
+                                                      _mediaHeight!;
+                                                  final updatedRegion = region
+                                                      .copyWith(
+                                                        y: newY * scaleY,
+                                                      );
+                                                  _updateCropRegion(
+                                                    index,
+                                                    updatedRegion,
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    // 입력 필드들
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // X 좌표 입력
-                                        SizedBox(
-                                          width: 49,
-                                          height: 34,
-                                          child: TextField(
-                                            controller: TextEditingController(
-                                              text: (region.x * _mediaWidth!)
-                                                  .toInt()
-                                                  .toString(),
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.red,
-                                            ),
-                                            decoration: InputDecoration(
-                                              labelText: 'X',
-                                              labelStyle: TextStyle(
-                                                fontSize: 7,
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Width 입력
+                                          SizedBox(
+                                            width: 49,
+                                            height: 34,
+                                            child: TextField(
+                                              controller: TextEditingController(
+                                                text:
+                                                    (region.width *
+                                                            _mediaWidth!)
+                                                        .toInt()
+                                                        .toString(),
                                               ),
-                                              contentPadding:
-                                                  const EdgeInsets.all(4),
-                                              border: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(3),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red,
                                               ),
+                                              decoration: InputDecoration(
+                                                labelText: 'W',
+                                                labelStyle: TextStyle(
+                                                  fontSize: 7,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.all(4),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(3),
+                                                ),
+                                              ),
+                                              onSubmitted: (value) {
+                                                final newWidth =
+                                                    double.tryParse(value);
+                                                if (newWidth != null &&
+                                                    newWidth > 0) {
+                                                  // 입력된 픽셀 값을 상대 좌표로 변환
+                                                  final updatedRegion = region
+                                                      .copyWith(
+                                                        width:
+                                                            newWidth /
+                                                            _mediaWidth!,
+                                                      );
+                                                  _updateCropRegion(
+                                                    index,
+                                                    updatedRegion,
+                                                  );
+                                                }
+                                              },
                                             ),
-                                            onSubmitted: (value) {
-                                              final newX = double.tryParse(
-                                                value,
-                                              );
-                                              if (newX != null) {
-                                                // 입력된 픽셀 값을 상대 좌표로 변환
-                                                final updatedRegion = region
-                                                    .copyWith(
-                                                      x: newX / _mediaWidth!,
-                                                    );
-                                                _updateCropRegion(
-                                                  index,
-                                                  updatedRegion,
-                                                );
-                                              }
-                                            },
                                           ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        // Y 좌표 입력
-                                        SizedBox(
-                                          width: 49,
-                                          height: 34,
-                                          child: TextField(
-                                            controller: TextEditingController(
-                                              text: (region.y * _mediaHeight!)
-                                                  .toInt()
-                                                  .toString(),
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.red,
-                                            ),
-                                            decoration: InputDecoration(
-                                              labelText: 'Y',
-                                              labelStyle: TextStyle(
-                                                fontSize: 7,
+                                          const SizedBox(width: 4),
+                                          // Height 입력
+                                          SizedBox(
+                                            width: 49,
+                                            height: 34,
+                                            child: TextField(
+                                              controller: TextEditingController(
+                                                text:
+                                                    (region.height *
+                                                            _mediaHeight!)
+                                                        .toInt()
+                                                        .toString(),
                                               ),
-                                              contentPadding:
-                                                  const EdgeInsets.all(4),
-                                              border: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(3),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.red,
                                               ),
+                                              decoration: InputDecoration(
+                                                labelText: 'H',
+                                                labelStyle: TextStyle(
+                                                  fontSize: 7,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.all(4),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(3),
+                                                ),
+                                              ),
+                                              onSubmitted: (value) {
+                                                final newHeight =
+                                                    double.tryParse(value);
+                                                if (newHeight != null &&
+                                                    newHeight > 0) {
+                                                  // 입력된 픽셀 값을 상대 좌표로 변환
+                                                  final updatedRegion = region
+                                                      .copyWith(
+                                                        height:
+                                                            newHeight /
+                                                            _mediaHeight!,
+                                                      );
+                                                  _updateCropRegion(
+                                                    index,
+                                                    updatedRegion,
+                                                  );
+                                                }
+                                              },
                                             ),
-                                            onSubmitted: (value) {
-                                              final newY = double.tryParse(
-                                                value,
-                                              );
-                                              if (newY != null) {
-                                                // 입력된 값을 원본 미디어 크기 기준으로 변환
-                                                final scaleY =
-                                                    (_currentDisplayHeight ??
-                                                        1) /
-                                                    _mediaHeight!;
-                                                final updatedRegion = region
-                                                    .copyWith(y: newY * scaleY);
-                                                _updateCropRegion(
-                                                  index,
-                                                  updatedRegion,
-                                                );
-                                              }
-                                            },
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // Width 입력
-                                        SizedBox(
-                                          width: 49,
-                                          height: 34,
-                                          child: TextField(
-                                            controller: TextEditingController(
-                                              text:
-                                                  (region.width * _mediaWidth!)
-                                                      .toInt()
-                                                      .toString(),
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.red,
-                                            ),
-                                            decoration: InputDecoration(
-                                              labelText: 'W',
-                                              labelStyle: TextStyle(
-                                                fontSize: 7,
-                                              ),
-                                              contentPadding:
-                                                  const EdgeInsets.all(4),
-                                              border: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(3),
-                                              ),
-                                            ),
-                                            onSubmitted: (value) {
-                                              final newWidth = double.tryParse(
-                                                value,
-                                              );
-                                              if (newWidth != null &&
-                                                  newWidth > 0) {
-                                                // 입력된 픽셀 값을 상대 좌표로 변환
-                                                final updatedRegion = region
-                                                    .copyWith(
-                                                      width:
-                                                          newWidth /
-                                                          _mediaWidth!,
-                                                    );
-                                                _updateCropRegion(
-                                                  index,
-                                                  updatedRegion,
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        // Height 입력
-                                        SizedBox(
-                                          width: 49,
-                                          height: 34,
-                                          child: TextField(
-                                            controller: TextEditingController(
-                                              text:
-                                                  (region.height *
-                                                          _mediaHeight!)
-                                                      .toInt()
-                                                      .toString(),
-                                            ),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.red,
-                                            ),
-                                            decoration: InputDecoration(
-                                              labelText: 'H',
-                                              labelStyle: TextStyle(
-                                                fontSize: 7,
-                                              ),
-                                              contentPadding:
-                                                  const EdgeInsets.all(4),
-                                              border: OutlineInputBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(3),
-                                              ),
-                                            ),
-                                            onSubmitted: (value) {
-                                              final newHeight = double.tryParse(
-                                                value,
-                                              );
-                                              if (newHeight != null &&
-                                                  newHeight > 0) {
-                                                // 입력된 픽셀 값을 상대 좌표로 변환
-                                                final updatedRegion = region
-                                                    .copyWith(
-                                                      height:
-                                                          newHeight /
-                                                          _mediaHeight!,
-                                                    );
-                                                _updateCropRegion(
-                                                  index,
-                                                  updatedRegion,
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    );
-                  }),
+                          );
+                        },
+                      );
+                    });
+                  })(),
                 ],
               ),
             ),
